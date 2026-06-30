@@ -398,6 +398,14 @@ ContextMenuStrip menu)
                     _chart.AxisViewChanging -= _chart_AxisViewChanging;
                     _chart.MouseUp -= _chart_MouseUp;
 
+                    // Evz
+                    _chart.MouseMove -= _chart_MouseMoveForRuler;
+                    _chart.MouseDown -= _chart_MouseDownForRuler;
+                    _chart.MouseUp -= _chart_MouseUpForRuler;
+                    _chart.KeyUp -= _chart_KeyUpForRuler;
+                    _chart.Paint -= _chart_PaintForRuler;
+                    // Evz
+
                     _chart.Series.Clear();
                     _chart.ChartAreas.Clear();
                     _chart.Dispose();
@@ -669,7 +677,14 @@ ContextMenuStrip menu)
                 _chart.MouseUp += _chart_MouseUp;
                 _chart.ClientSizeChanged += _chart_ClientSizeChanged;
                 _chart.AxisViewChanging += _chart_AxisViewChanging;
-               
+
+                // Evz
+                _chart.MouseMove += _chart_MouseMoveForRuler;
+                _chart.MouseDown += _chart_MouseDownForRuler;
+                _chart.MouseUp += _chart_MouseUpForRuler;
+                _chart.KeyUp += _chart_KeyUpForRuler;
+                _chart.Paint += _chart_PaintForRuler;
+                // Evz
 
             }
             catch (Exception error)
@@ -8142,6 +8157,261 @@ ContextMenuStrip menu)
         /// изменилось расстояние от правого края до расположения представления на оси X
         /// </summary>
         public event Action<int> LastXIndexChangeEvent;
+        // Evz
+        //*********************************************
+        // to work with ruler that measures percentages on chart / для работы линейки
+
+        private bool _isDrawingRuler;
+        private Label _cursorLabelForRuler;
+        private System.Drawing.Point _startPointForRuler;
+        private System.Drawing.Point _endPointForRuler;
+        private decimal _startPriceForRuler;
+        private decimal _priceStepForRuler;
+        private int _startPosYCursorForRuler;
+        private System.Drawing.Rectangle _rectangleAreaForRuler;
+
+        /// <summary>
+        /// mouse button was pressed
+        /// нажали кнопку мыши
+        /// </summary>
+        private void _chart_MouseDownForRuler(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Shift)
+                {
+                    if (IsPatternChart)
+                    {
+                        return;
+                    }
+                    if (_chart.Cursor == Cursors.SizeAll || _chart.Cursor == Cursors.SizeWE || _chart.Cursor == Cursors.Hand)
+                    {
+                        return;
+                    }
+                    if (_chart.ChartAreas.Count < 1)
+                    {
+                        return;
+                    }
+                    if (_areaPositions == null || _areaPositions.Count < 1)
+                    {
+                        return;
+                    }
+                    if (_myCandles == null || _myCandles.Count == 0)
+                    {
+                        return;
+                    }
+
+                    ChartArea area = null;
+                    for (int i = 0; i < _chart.ChartAreas.Count; i++)
+                    {
+                        if (!double.IsNaN(_chart.ChartAreas[i].CursorY.Position))
+                        {
+                            area = _chart.ChartAreas[i];
+                            break;
+                        }
+                    }
+                    if (area == null)
+                    {
+                        return;
+                    }
+                    if (_areaSizes == null)
+                    {
+                        return;
+                    }
+                    ChartAreaSizes areaSize = _areaSizes.Find(size => size.Name == area.Name);
+                    if (areaSize == null)
+                    {
+                        return;
+                    }
+
+                    _rectangleAreaForRuler = GetRectangleAreaForRuler(area);
+
+                    if (_rectangleAreaForRuler.Width == 0 || _rectangleAreaForRuler.Height == 0)
+                    {
+                        return;
+                    }
+
+                    if (Control.MousePosition.Y > _rectangleAreaForRuler.Y && Control.MousePosition.Y < _rectangleAreaForRuler.Y + _rectangleAreaForRuler.Height
+                            && Control.MousePosition.X > _rectangleAreaForRuler.X && Control.MousePosition.X < _rectangleAreaForRuler.X + _rectangleAreaForRuler.Width)
+                    {
+                        _startPointForRuler = e.Location;
+                        _startPosYCursorForRuler = e.Y;
+
+                        _startPriceForRuler = Convert.ToDecimal(Math.Round(area.CursorY.Position, areaSize.Decimals));
+
+                        decimal heightYinPrice = Convert.ToDecimal(Math.Round(area.AxisY2.Maximum - area.AxisY2.Minimum, areaSize.Decimals));
+
+                        _priceStepForRuler = heightYinPrice / _rectangleAreaForRuler.Height;
+
+                        if (_cursorLabelForRuler == null)
+                        {
+                            _cursorLabelForRuler = new Label
+                            {
+                                AutoSize = true,
+                                BackColor = Color.Transparent,
+                                ForeColor = Color.White,
+                                Visible = true
+                            };
+
+                            _chart.Controls.Add(_cursorLabelForRuler);
+                        }
+                        else
+                        {
+                            _cursorLabelForRuler.Text = "0%";
+                            _cursorLabelForRuler.Location = new System.Drawing.Point(e.X + 10, e.Y + 10);
+                            _cursorLabelForRuler.Visible = true;
+                        }
+
+                        _isDrawingRuler = true;
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// mouse moved
+        /// двинулась мышь
+        /// </summary>
+        private void _chart_MouseMoveForRuler(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (Control.ModifierKeys == Keys.Shift && e.Button == MouseButtons.Left)
+                {
+                    if (_isDrawingRuler == true)
+                    {
+                        if (_cursorLabelForRuler != null)
+                        {
+                            if (Control.MousePosition.Y > _rectangleAreaForRuler.Y && Control.MousePosition.Y < _rectangleAreaForRuler.Y + _rectangleAreaForRuler.Height
+                                && Control.MousePosition.X > _rectangleAreaForRuler.X && Control.MousePosition.X < _rectangleAreaForRuler.X + _rectangleAreaForRuler.Width)
+                            {
+                                decimal currPrice = _startPriceForRuler + (_startPosYCursorForRuler - e.Y) * _priceStepForRuler;
+                                string percent = Convert.ToString(Math.Round((currPrice - _startPriceForRuler) / _startPriceForRuler * 100m, 2)) + "%";
+
+                                _cursorLabelForRuler.Text = percent;
+                                _cursorLabelForRuler.Location = new System.Drawing.Point(e.X + 10, e.Y + 10);
+
+                                _endPointForRuler = e.Location;
+                                _chart.Invalidate();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// redrawing ruler line
+        /// перерисовка линии линейки
+        /// </summary>
+        private void _chart_PaintForRuler(object sender, PaintEventArgs e)
+        {
+            try
+            {
+                if (_isDrawingRuler == true)
+                {
+                    using (System.Drawing.Pen pen = new System.Drawing.Pen(Color.White, 1))
+                    {
+                        pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+                        e.Graphics.DrawLine(pen, _startPointForRuler, _endPointForRuler);
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// take rectangle of the chart area in screen coordinates
+        /// взять прямоугольник области чарта в экранных координатах
+        /// </summary>
+        /// <param name="area">chart area / область чарта</param>
+        private System.Drawing.Rectangle GetRectangleAreaForRuler(ChartArea area)
+        {
+            System.Drawing.Rectangle rectangle = new System.Drawing.Rectangle();
+            try
+            {
+                ElementPosition position = area.Position;
+                RectangleF chartBounds = new RectangleF(0, 0, _chart.Width, _chart.Height);
+                RectangleF rectangleArea = new RectangleF(chartBounds.X + (chartBounds.Width * position.X / 100), chartBounds.Y + (chartBounds.Height * position.Y / 100),
+                    chartBounds.Width * position.Width / 100, chartBounds.Height * position.Height / 100);
+                System.Drawing.Point topLeft = _chart.PointToScreen(new System.Drawing.Point((int)rectangleArea.X, (int)rectangleArea.Y));
+                System.Drawing.Point bottomRight = _chart.PointToScreen(new System.Drawing.Point((int)(rectangleArea.X + rectangleArea.Width * area.InnerPlotPosition.Width / 100), (int)(rectangleArea.Y + rectangleArea.Height * area.InnerPlotPosition.Height / 100)));
+
+                rectangle.X = topLeft.X;
+                rectangle.Y = topLeft.Y;
+                rectangle.Width = bottomRight.X - topLeft.X;
+                rectangle.Height = bottomRight.Y - topLeft.Y;
+
+                return rectangle;
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+            return rectangle;
+        }
+
+        /// <summary>
+        /// mouse button has been released
+        /// отпустили кнопку мыши
+        /// </summary>
+        private void _chart_MouseUpForRuler(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    if (_isDrawingRuler == true)
+                    {
+                        _isDrawingRuler = false;
+                        _cursorLabelForRuler.Visible = false;
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// key on keyboard has been released
+        /// отпустили клавишу на клавиатуре
+        /// </summary>
+        private void _chart_KeyUpForRuler(object sender, KeyEventArgs e)
+        {
+            try
+            {
+                if (e.KeyCode == Keys.ShiftKey)
+                {
+                    if (_isDrawingRuler == true)
+                    {
+                        _chart.Invalidate();
+                        _isDrawingRuler = false;
+                        _cursorLabelForRuler.Visible = false;
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+
+        //**********************************************
+        // Evz
     }
 
     /// <summary>

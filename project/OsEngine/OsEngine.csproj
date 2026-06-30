@@ -73,6 +73,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="Robots\DataTransferObjects.cs" />
+    <Compile Remove="Robots\EVZRobots\GridBot_old.cs" />
     <Compile Remove="Robots\OptionsDataCollector.cs" />
   </ItemGroup>
   <ItemGroup>

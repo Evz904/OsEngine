@@ -184,56 +184,6 @@ namespace OsEngine.Journal
             StartButtonBlinkAnimation();
         }
 
-        private void StartButtonBlinkAnimation()
-        {
-            try
-            {
-                DispatcherTimer timer = new DispatcherTimer();
-                int blinkCount = 0;
-                bool isGreenVisible = true;
-
-                timer.Interval = TimeSpan.FromMilliseconds(300);
-                timer.Tick += (s, e) =>
-                {
-                    try
-                    {
-                        if (blinkCount >= 20)
-                        {
-                            timer.Stop();
-                            GreenCollectionJournal2.Opacity = 1;
-                            WhiteCollectionJournal2.Opacity = 0;
-                            return;
-                        }
-
-                        if (isGreenVisible)
-                        {
-                            GreenCollectionJournal2.Opacity = 0;
-                            WhiteCollectionJournal2.Opacity = 1;
-                        }
-                        else
-                        {
-                            GreenCollectionJournal2.Opacity = 1;
-                            WhiteCollectionJournal2.Opacity = 0;
-                        }
-
-                        isGreenVisible = !isGreenVisible;
-                        blinkCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
-                        timer.Stop();
-                    }
-                };
-
-                timer.Start();
-            }
-            catch (Exception ex)
-            {
-                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
-            }
-        }
-
         private void JournalUi_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             try
@@ -245,11 +195,36 @@ namespace OsEngine.Journal
                 ComboBoxChartType.SelectionChanged -= ComboBoxChartType_SelectionChanged;
                 VolumeShowNumbers.SelectionChanged -= VolumeShowNumbers_SelectionChanged;
                 ComboBoxBenchmark.SelectionChanged -= ComboBoxBenchmark_SelectionChanged;
+
+                ComboBoxClosePosesOnPage.SelectionChanged -= ComboBoxClosePosesOnPage_SelectionChanged;
+                ComboBoxClosePosesShowNumbers.SelectionChanged -= ComboBoxClosePosesShowNumbers_SelectionChanged;
+                ComboBoxOpenPosesOnPage.SelectionChanged -= ComboBoxOpenPosesOnPage_SelectionChanged;
+                ComboBoxOpenPosesShowNumbers.SelectionChanged -= ComboBoxOpenPosesShowNumbers_SelectionChanged;
+
+                ButtonAutoReload.Click -= ButtonAutoReload_Click;
+                CheckBoxShowDontOpenPoses.Click -= CheckBoxShowDontOpenPoses_Click;
+                if (ButtonPostsJournal2.Visibility == Visibility.Visible)
+                {
+                    ButtonPostsJournal2.Click -= ButtonPostsJournal2_Click;
+                }
+
+                SliderFrom.ValueChanged -= SliderFrom_ValueChanged;
+                SliderTo.ValueChanged -= SliderTo_ValueChanged;
+                TextBoxFrom.TextChanged -= TextBoxFrom_TextChanged;
+                TextBoxTo.TextChanged -= TextBoxTo_TextChanged;
+
                 TabControlPrime.Items.Clear();
                 TabControlVolume.Items.Clear();
 
                 Closing -= JournalUi_Closing;
-                _botsJournals.Clear();
+
+                if (_instructionsUi != null)
+                {
+                    _instructionsUi.Closed -= _instructionsUi_Closed;
+                    _instructionsUi.Close();
+                    _instructionsUi = null;
+                }
+
                 _botsJournals = null;
 
                 if (_allPositions != null)
@@ -267,47 +242,103 @@ namespace OsEngine.Journal
                     _shortPositions = null;
                 }
 
+                if (_selectedSecurities != null)
+                {
+                    _selectedSecurities.Clear();
+                    _selectedSecurities = null;
+                }
+
+                _lastSecuritiesEvent = null;
+
+                if (_benchmark != null)
+                {
+                    _benchmark.NewLogMessageEvent -= SendNewLogMessage;
+                    _benchmark.DownloadBenchmarkEvent -= Benchmark_DownloadBenchmarkEvent;
+                    _benchmark = null;
+                }
+
                 if (_chartEquity != null)
                 {
-                    _chartEquity.MouseMove -= _chartEquity_MouseMove;
-                    _chartEquity.MouseWheel -= _chartEquity_MouseWheel;
-                    RectangleEquity.MouseDown -= RectangleEquity_MouseDown;
-                    RectangleLong.MouseDown -= RectangleLong_MouseDown;
-                    RectangleShort.MouseDown -= RectangleShort_MouseDown;
+                    try
+                    {
+                        _chartEquity.MouseMove -= _chartEquity_MouseMove;
+                        _chartEquity.MouseWheel -= _chartEquity_MouseWheel;
+                        RectangleEquity.MouseDown -= RectangleEquity_MouseDown;
+                        RectangleLong.MouseDown -= RectangleLong_MouseDown;
+                        RectangleShort.MouseDown -= RectangleShort_MouseDown;
 
-                    _chartEquity.Series.Clear();
-                    _chartEquity.ChartAreas.Clear();
-                    _chartEquity = null;
-                    HostEquity.Child.Hide();
-                    HostEquity.Child = null;
-                    HostEquity = null;
+                        _chartEquity.Series.Clear();
+                        _chartEquity.ChartAreas.Clear();
+
+                        if (HostEquity != null)
+                        {
+                            HostEquity.Child = null;
+                        }
+
+                        _chartEquity.Dispose();
+                        _chartEquity = null;
+                        HostEquity = null;
+                    }
+                    catch (Exception error)
+                    {
+                        SendNewLogMessage(error.ToString(), LogMessageType.Error);
+                    }
                 }
 
                 if (_chartVolume != null)
                 {
-                    _chartVolume.Series.Clear();
-                    _chartVolume.ChartAreas.Clear();
-                    _chartVolume.Click -= _chartVolume_Click;
-                    _chartVolume = null;
-                    HostVolume.Child.Hide();
-                    HostVolume.Child = null;
-                    HostVolume = null;
+                    try
+                    {
+                        _chartVolume.MouseWheel -= _chartVolume_MouseWheel;
+                        _chartVolume.Click -= _chartVolume_Click;
+                        _chartVolume.Series.Clear();
+                        _chartVolume.ChartAreas.Clear();
+
+                        if (HostVolume != null)
+                        {
+                            HostVolume.Child = null;
+                        }
+
+                        _chartVolume.Dispose();
+                        _chartVolume = null;
+                        HostVolume = null;
+                    }
+                    catch (Exception error)
+                    {
+                        SendNewLogMessage(error.ToString(), LogMessageType.Error);
+                    }
                 }
 
                 if (_chartPortfolio != null)
                 {
-                    _chartPortfolio.MouseMove -= _chartEquity_MouseMove;
-                    _chartPortfolio.MouseWheel -= _chartEquity_MouseWheel;
-                    _chartPortfolio.Series.Clear();
-                    _chartPortfolio.ChartAreas.Clear();
-                    _chartPortfolio = null;
+                    try
+                    {
+                        _chartPortfolio.MouseMove -= _chartPortfolio_MouseMove;
+                        _chartPortfolio.MouseWheel -= _chartPortfolio_MouseWheel;
+                        _chartPortfolio.Series.Clear();
+                        _chartPortfolio.ChartAreas.Clear();
+
+                        if (_layoutPanelPortfolio != null)
+                        {
+                            _layoutPanelPortfolio.Controls.Remove(_chartPortfolio);
+                        }
+
+                        _chartPortfolio.Dispose();
+                        _chartPortfolio = null;
+                    }
+                    catch (Exception error)
+                    {
+                        SendNewLogMessage(error.ToString(), LogMessageType.Error);
+                    }
                 }
 
                 if (_gridLeveragePortfolio != null)
                 {
                     DataGridFactory.ClearLinks(_gridLeveragePortfolio);
-                    _gridLeveragePortfolio.Rows.Clear();
                     _gridLeveragePortfolio.DataError -= _gridLeveragePortfolio_DataError;
+                    _gridLeveragePortfolio.Rows.Clear();
+                    _gridLeveragePortfolio.Columns.Clear();
+                    _gridLeveragePortfolio.DataSource = null;
                     _gridLeveragePortfolio.Dispose();
                     _gridLeveragePortfolio = null;
                 }
@@ -315,6 +346,7 @@ namespace OsEngine.Journal
                 if (_layoutPanelPortfolio != null)
                 {
                     _layoutPanelPortfolio.Controls.Clear();
+                    _layoutPanelPortfolio.Dispose();
                     _layoutPanelPortfolio = null;
                     HostVolumePortfolio.Child.Hide();
                     HostVolumePortfolio.Child = null;
@@ -323,63 +355,69 @@ namespace OsEngine.Journal
 
                 if (_chartDd != null)
                 {
-                    _chartDd.Series.Clear();
-                    _chartDd.ChartAreas.Clear();
-                    _chartDd = null;
-                    HostDrawdown.Child.Hide();
-                    HostDrawdown.Child = null;
-                    HostDrawdown = null;
+                    try
+                    {
+                        _chartDd.MouseMove -= _chartDd_MouseMove;
+                        _chartDd.Series.Clear();
+                        _chartDd.ChartAreas.Clear();
+
+                        if (HostDrawdown != null)
+                        {
+                            HostDrawdown.Child = null;
+                        }
+
+                        _chartDd.Dispose();
+                        _chartDd = null;
+                        HostDrawdown = null;
+                    }
+                    catch (Exception error)
+                    {
+                        SendNewLogMessage(error.ToString(), LogMessageType.Error);
+                    }
                 }
 
                 if (_gridStatistics != null)
                 {
+                    HostStatistics.Child = null;
                     DataGridFactory.ClearLinks(_gridStatistics);
-                    _gridStatistics.Rows.Clear();
                     _gridStatistics.DataError -= _gridStatistics_DataError;
+                    _gridStatistics.Rows.Clear();
+                    _gridStatistics.Columns.Clear();
+                    _gridStatistics.DataSource = null;
                     _gridStatistics.Dispose();
                     _gridStatistics = null;
-                    HostStatistics.Child.Hide();
-                    HostStatistics.Child = null;
                     HostStatistics = null;
                 }
 
                 if (_openPositionGrid != null)
                 {
+                    HostOpenPosition.Child = null;
                     DataGridFactory.ClearLinks(_openPositionGrid);
-                    _openPositionGrid.Rows.Clear();
                     _openPositionGrid.Click -= _openPositionGrid_Click;
                     _openPositionGrid.CellClick -= _gridOpenDeal_CellClick;
                     _openPositionGrid.DoubleClick -= _openPositionGrid_DoubleClick;
                     _openPositionGrid.DataError -= _gridStatistics_DataError;
+                    _openPositionGrid.Rows.Clear();
+                    _openPositionGrid.Columns.Clear();
+                    _openPositionGrid.DataSource = null;
                     _openPositionGrid.Dispose();
                     _openPositionGrid = null;
-
-                    if (HostOpenPosition.Child != null)
-                    {
-                        HostOpenPosition.Child.Hide();
-                        HostOpenPosition.Child = null;
-                    }
-
                     HostOpenPosition = null;
                 }
 
                 if (_closePositionGrid != null)
                 {
+                    HostClosePosition.Child = null;
                     DataGridFactory.ClearLinks(_closePositionGrid);
-                    _closePositionGrid.Rows.Clear();
                     _closePositionGrid.Click -= _closePositionGrid_Click;
                     _closePositionGrid.CellClick -= _gridCloseDeal_CellClick;
                     _closePositionGrid.DoubleClick -= _closePositionGrid_DoubleClick;
                     _closePositionGrid.DataError -= _gridStatistics_DataError;
+                    _closePositionGrid.Rows.Clear();
+                    _closePositionGrid.Columns.Clear();
+                    _closePositionGrid.DataSource = null;
                     _closePositionGrid.Dispose();
                     _closePositionGrid = null;
-
-                    if (HostClosePosition.Child != null)
-                    {
-                        HostClosePosition.Child.Hide();
-                        HostClosePosition.Child = null;
-                    }
-
                     HostClosePosition = null;
                 }
 
@@ -390,6 +428,9 @@ namespace OsEngine.Journal
                     _gridLeftBotsPanel.CellBeginEdit -= _gridLeftBotsPanel_CellBeginEdit;
                     _gridLeftBotsPanel.DataError -= _gridStatistics_DataError;
                     DataGridFactory.ClearLinks(_gridLeftBotsPanel);
+                    _gridLeftBotsPanel.Rows.Clear();
+                    _gridLeftBotsPanel.Columns.Clear();
+                    _gridLeftBotsPanel.DataSource = null;
                     _gridLeftBotsPanel.Dispose();
                     _gridLeftBotsPanel = null;
                 }
@@ -400,14 +441,85 @@ namespace OsEngine.Journal
                     _gridLeftSecuritiesPanel.CellClick -= _gridLeftSecuritiesPanel_CellClick;
                     _gridLeftSecuritiesPanel.DataError -= _gridStatistics_DataError;
                     DataGridFactory.ClearLinks(_gridLeftSecuritiesPanel);
+                    _gridLeftSecuritiesPanel.Rows.Clear();
+                    _gridLeftSecuritiesPanel.Columns.Clear();
+                    _gridLeftSecuritiesPanel.DataSource = null;
                     _gridLeftSecuritiesPanel.Dispose();
                     _gridLeftSecuritiesPanel = null;
                 }
 
+                if (_blinkTimer != null)
+                {
+                    _blinkTimer.Stop();
+                    _blinkTimer.Tick -= _blinkTimer_Tick;
+                    _blinkTimer = null;
+                }
             }
             catch (Exception ex)
             {
                 SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+        }
+
+        private DispatcherTimer _blinkTimer;
+
+        private int _blinkCount;
+
+        private bool _isGreenVisible = true;
+
+        private void StartButtonBlinkAnimation()
+        {
+            try
+            {
+                _blinkTimer = new DispatcherTimer();
+                _blinkTimer.Interval = TimeSpan.FromMilliseconds(300);
+                _blinkTimer.Tick += _blinkTimer_Tick;
+                _blinkTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void _blinkTimer_Tick(object sender, EventArgs e)
+        {
+            if (_blinkTimer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_blinkCount >= 20)
+                {
+                    _blinkTimer.Stop();
+                    GreenCollectionJournal2.Opacity = 1;
+                    WhiteCollectionJournal2.Opacity = 0;
+                    return;
+                }
+
+                if (_isGreenVisible)
+                {
+                    GreenCollectionJournal2.Opacity = 0;
+                    WhiteCollectionJournal2.Opacity = 1;
+                }
+                else
+                {
+                    GreenCollectionJournal2.Opacity = 1;
+                    WhiteCollectionJournal2.Opacity = 0;
+                }
+
+                _isGreenVisible = !_isGreenVisible;
+                _blinkCount++;
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+                if (_blinkTimer != null)
+                {
+                    _blinkTimer.Stop();
+                }
             }
         }
 
@@ -1825,7 +1937,7 @@ namespace OsEngine.Journal
                     _checkBenchmarkData = true;
                     _countLoadBenchmark++;
 
-                    _benchmark.GetData(series);
+                    _ = _benchmark.GetData(series);
                 }
                 else
                 {

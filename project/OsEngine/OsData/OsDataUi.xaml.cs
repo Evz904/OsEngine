@@ -17,6 +17,11 @@ namespace OsEngine.OsData
     {
         private OsDataMasterPainter _osDataMaster;
 
+        /// <summary>
+        /// Underlying OsData master for MCP API integration.
+        /// </summary>
+        public OsDataMaster Master { get; private set; }
+
         public OsDataUi()
         {
             InitializeComponent();
@@ -25,9 +30,9 @@ namespace OsEngine.OsData
             LabelTimeStartValue.Content = "";
             Layout.StickyBorders.Listen(this);
 
-            OsDataMaster master = new OsDataMaster();
+            Master = new OsDataMaster();
 
-            _osDataMaster = new OsDataMasterPainter(master,
+            _osDataMaster = new OsDataMasterPainter(Master,
                 ChartHostPanel, HostLog, HostSource,
                 HostSet, LabelSetNameValue, LabelTimeStartValue,
                 LabelTimeEndValue, ProgressBarLoadProgress, TextBoxSearchSource);
@@ -61,49 +66,74 @@ namespace OsEngine.OsData
             StartButtonBlinkAnimation();
         }
 
+        private void OsDataUi_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            try
+            {
+                bool isProgrammaticClose = false;
+
+                if (Application.Current.MainWindow is MainWindow mainWindow)
+                {
+                    isProgrammaticClose = mainWindow.IsProgrammaticClose;
+                }
+
+                if (!isProgrammaticClose)
+                {
+                    AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Data.Label27);
+                    ui.ShowDialog();
+
+                    if (ui.UserAcceptAction == false)
+                    {
+                        e.Cancel = true;
+                        return;
+                    }
+                }
+
+                if (_osDataMaster != null)
+                {
+                    _osDataMaster.StopPaintActiveSet();
+                    _osDataMaster.Dispose();
+                    _osDataMaster = null;
+                }
+
+                if (ChartHostPanel != null)
+                {
+                    ChartHostPanel.Child = null;
+                }
+                if (HostSource != null)
+                {
+                    HostSource.Child = null;
+                }
+                if (HostSet != null)
+                {
+                    HostSet.Child = null;
+                }
+                if (HostLog != null)
+                {
+                    HostLog.Child = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+                e.Cancel = false;
+            }
+        }
+
+        private DispatcherTimer _blinkTimer;
+
+        private int _blinkCount;
+
+        private bool _isGreenVisible = true;
+
         private void StartButtonBlinkAnimation()
         {
             try
             {
-                DispatcherTimer timer = new DispatcherTimer();
-                int blinkCount = 0;
-                bool isGreenVisible = true;
-
-                timer.Interval = TimeSpan.FromMilliseconds(300);
-                timer.Tick += (s, e) =>
-                {
-                    try
-                    {
-                        if (blinkCount >= 20)
-                        {
-                            timer.Stop();
-                            GreenCollectionData.Opacity = 1;
-                            WhiteCollectionData.Opacity = 0;
-                            return;
-                        }
-
-                        if (isGreenVisible)
-                        {
-                            GreenCollectionData.Opacity = 0;
-                            WhiteCollectionData.Opacity = 1;
-                        }
-                        else
-                        {
-                            GreenCollectionData.Opacity = 1;
-                            WhiteCollectionData.Opacity = 0;
-                        }
-
-                        isGreenVisible = !isGreenVisible;
-                        blinkCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
-                        timer.Stop();
-                    }
-                };
-
-                timer.Start();
+                _blinkTimer = new DispatcherTimer();
+                _blinkTimer.Interval = TimeSpan.FromMilliseconds(300);
+                _blinkTimer.Tick += _blinkTimer_Tick;
+                _blinkTimer.Start();
             }
             catch (Exception ex)
             {
@@ -111,28 +141,46 @@ namespace OsEngine.OsData
             }
         }
 
-        private void OsDataUi_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        private void _blinkTimer_Tick(object sender, EventArgs e)
         {
+            if (_blinkTimer == null)
+            {
+                return;
+            }
+
             try
             {
-                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Data.Label27);
-                ui.ShowDialog();
-
-                if (ui.UserAcceptAction == false)
+                if (_blinkCount >= 20)
                 {
-                    e.Cancel = true;
+                    _blinkTimer.Stop();
+                    _blinkTimer.Tick -= _blinkTimer_Tick;
+                    _blinkTimer = null;
+                    GreenCollectionData.Opacity = 1;
+                    WhiteCollectionData.Opacity = 0;
+                    return;
                 }
 
-                if (_osDataMaster != null)
+                if (_isGreenVisible)
                 {
-                    _osDataMaster.Dispose();
-                    _osDataMaster = null;
+                    GreenCollectionData.Opacity = 0;
+                    WhiteCollectionData.Opacity = 1;
                 }
+                else
+                {
+                    GreenCollectionData.Opacity = 1;
+                    WhiteCollectionData.Opacity = 0;
+                }
+
+                _isGreenVisible = !_isGreenVisible;
+                _blinkCount++;
             }
             catch (Exception ex)
             {
                 ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
-                e.Cancel = false;
+                if (_blinkTimer != null)
+                {
+                    _blinkTimer.Stop();
+                }
             }
         }
 

@@ -408,8 +408,25 @@ ContextMenuStrip menu)
 
                     _chart.Series.Clear();
                     _chart.ChartAreas.Clear();
-                    _chart.Dispose();
-                    _chart = null;
+
+                    if (_host != null)
+                    {
+                        _host.Child = null;
+                        _host = null;
+                    }
+
+                    try
+                    {
+                        _chart.Dispose();
+                    }
+                    catch (Exception error)
+                    {
+                        SendLogMessage(error.ToString(), LogMessageType.Error);
+                    }
+                    finally
+                    {
+                        _chart = null;
+                    }
                 }
 
                 if (_colorKeeper != null)
@@ -4303,7 +4320,8 @@ ContextMenuStrip menu)
             bool isMyValues = mySeries.Points.Count != 0 && Convert.ToDouble(values[0]) == mySeries.Points[0].YValues[0];
 
             if (mySeries.Points.Count != 0 &&
-               values.Count - 1 == mySeries.Points.Count
+               values.Count - 1 == mySeries.Points.Count &&
+                fullReloadOnNewCandle == false
                && isMyValues)
             {
                 // if draw only last point
@@ -5105,7 +5123,7 @@ ContextMenuStrip menu)
                 return;
             }
             _myCandles = candles;
-            Volume indicator = new Volume(false);
+            OsEngine.Charts.CandleChart.Indicators.Volume indicator = new OsEngine.Charts.CandleChart.Indicators.Volume(false);
             indicator.NameArea = "Prime";
             indicator.NameSeries = "VolumePattern";
             indicator.Values = new List<decimal>();

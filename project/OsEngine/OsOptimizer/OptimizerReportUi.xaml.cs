@@ -5,19 +5,20 @@
 
 using OsEngine.Entity;
 using OsEngine.Language;
+using OsEngine.Logging;
+using OsEngine.Market;
+using OsEngine.OsOptimizer.OptEntity;
 using OsEngine.OsTrader.Panels;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Forms;
-using OsEngine.Logging;
-using MessageBox = System.Windows.MessageBox;
-using OsEngine.OsOptimizer.OptEntity;
-using System.IO;
-using System.Text;
 using System.Windows.Forms.DataVisualization.Charting;
-using System.Drawing;
-using System.Linq;
+using MessageBox = System.Windows.MessageBox;
 
 namespace OsEngine.OsOptimizer
 {
@@ -78,10 +79,33 @@ namespace OsEngine.OsOptimizer
                 {
                     WindowsFormsHostFazeNumOnTubResult.Child = null;
                 }
-
                 if (WindowsFormsHostResults != null)
                 {
                     WindowsFormsHostResults.Child = null;
+                }
+                if (WindowsFormsHostResultsChart != null)
+                {
+                    WindowsFormsHostResultsChart.Child = null;
+                }
+                if (HostStepsOfOptimizationTable != null)
+                {
+                    HostStepsOfOptimizationTable.Child = null;
+                }
+                if (HostRobustness != null)
+                {
+                    HostRobustness.Child = null;
+                }
+                if (HostTotalProfit != null)
+                {
+                    HostTotalProfit.Child = null;
+                }
+                if (HostAverageProfit != null)
+                {
+                    HostAverageProfit.Child = null;
+                }
+                if (HostProfitFactor != null)
+                {
+                    HostProfitFactor.Child = null;
                 }
 
                 if (_gridFazesEnd != null)
@@ -89,19 +113,57 @@ namespace OsEngine.OsOptimizer
                     _gridFazesEnd.CellClick -= _gridFazesEnd_CellClick;
                     _gridFazesEnd.DataError -= _gridFazesEnd_DataError;
                     DataGridFactory.ClearLinks(_gridFazesEnd);
+                    _gridFazesEnd.Rows.Clear();
+                    _gridFazesEnd.Columns.Clear();
+                    _gridFazesEnd.DataSource = null;
+                    _gridFazesEnd.Dispose();
                     _gridFazesEnd = null;
                 }
 
                 if (_gridResults != null)
                 {
                     _gridResults.DataError -= _gridFazesEnd_DataError;
+                    _gridResults.SelectionChanged -= _gridResults_SelectionChanged;
+                    _gridResults.CellMouseClick -= _gridResults_CellMouseClick;
                     DataGridFactory.ClearLinks(_gridResults);
+                    _gridResults.Rows.Clear();
+                    _gridResults.Columns.Clear();
+                    _gridResults.DataSource = null;
+                    _gridResults.Dispose();
                     _gridResults = null;
                 }
+
+                if (_chartSeriesResult != null)
+                {
+                    try
+                    {
+                        _chartSeriesResult.Click -= _chartSeriesResult_Click;
+                        _chartSeriesResult.Series.Clear();
+                        _chartSeriesResult.ChartAreas.Clear();
+                        _chartSeriesResult.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        ServerMaster.SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+                    }
+                    _chartSeriesResult = null;
+                }
+
+                if (_resultsCharting != null)
+                {
+                    _resultsCharting.Delete();
+                    _resultsCharting.LogMessageEvent -= _master.SendLogMessage;
+                    _resultsCharting = null;
+                }
+
+                _master = null;
+                _reports = null;
+
+                Closed -= OptimizerReportUi_Closed;
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore
+                ServerMaster.SendNewLogMessage(ex.ToString(), LogMessageType.Error);
             }
         }
 
@@ -942,6 +1004,8 @@ namespace OsEngine.OsOptimizer
 
         private void PaintBotInTable(string botName)
         {
+            Color selectBotColor = Color.FromArgb(255, 83, 0);
+
             for (int i2 = 0; i2 < _gridResults.Rows.Count; i2++)
             {
                 DataGridViewRow row = _gridResults.Rows[i2];
@@ -950,14 +1014,17 @@ namespace OsEngine.OsOptimizer
                 {
                     for (int i = 0; i < row.Cells.Count; i++)
                     {
-                        row.Cells[i].Style.ForeColor = Color.FromArgb(255, 83, 0);
+                        row.Cells[i].Style.ForeColor = selectBotColor;
                     }
                 }
                 else
                 {
                     for (int i = 0; i < row.Cells.Count; i++)
                     {
-                        row.Cells[i].Style = _gridResults.DefaultCellStyle;
+                        if(row.Cells[i].Style.ForeColor == selectBotColor)
+                        {
+                            row.Cells[i].Style = _gridResults.DefaultCellStyle;
+                        }
                     }
                 }
             }

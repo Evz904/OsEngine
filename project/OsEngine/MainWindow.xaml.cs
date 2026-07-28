@@ -31,6 +31,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using System.Text.Json;
 using OsEngine.UpdateModule;
+using OsEngine.MCP;
 
 namespace OsEngine
 {
@@ -51,7 +52,7 @@ namespace OsEngine
 
         public static bool ProccesIsWorked;
 
-        private StartProgram _startProgram;
+        private StartProgram _startProgram = StartProgram.IsMainWindow;
 
         public MainWindow()
         {
@@ -135,6 +136,8 @@ namespace OsEngine
                 UnblockInterface();
             }
 
+            StartMcpHost();
+
             CommandLineInterfaceProcess();
 
             Task.Run(ClearOptimizerWorkResults);
@@ -169,6 +172,10 @@ namespace OsEngine
         {
             try
             {
+                _mcpMaster?.SendTerminalStopped("shutting_down");
+
+                StopMcpHost();
+
                 GlobalGUILayout.IsClosed = true;
 
                 if (ProccesIsWorked == true)
@@ -187,7 +194,7 @@ namespace OsEngine
                     }
                 }
 
-                Thread.Sleep(500);
+                Thread.Sleep(5000);
 
                 Process.GetCurrentProcess().Kill();
             }
@@ -242,6 +249,7 @@ namespace OsEngine
             ButtonOptimizer.Content = OsLocalization.MainWindow.OsOptimizerName;
 
             ButtonRobot.Content = OsLocalization.MainWindow.OsBotStationName;
+            ButtonApi.Content = OsLocalization.MainWindow.OsApiButtonName;
             ButtonCandleConverter.Content = OsLocalization.MainWindow.OsCandleConverter;
 
             ButtonTesterLight.Content = OsLocalization.MainWindow.OsTesterLiteName;
@@ -314,6 +322,305 @@ namespace OsEngine
             }
         }
 
+        #region MCP Host
+
+        private McpMaster _mcpMaster;
+
+        private McpApiUi _mcpApiUi;
+
+        private int _mcpPort = McpSettings.Port;
+
+        private string _mcpApiKey = McpSettings.ApiKey;
+
+        private Window _activeModeWindow;
+
+        private bool _isProgrammaticClose;
+
+        /// <summary>
+        /// Indicates that the terminal is being closed programmatically (e.g. via MCP terminal_stop).
+        /// Mode windows can use this flag to skip user confirmation dialogs.
+        /// </summary>
+        public bool IsProgrammaticClose => _isProgrammaticClose;
+
+        private void StartMcpHost()
+        {
+            try
+            {
+                int port = McpSettings.Port;
+                string apiKey = McpSettings.ApiKey;
+
+                ParseMcpCommandLineArgs(ref port, ref apiKey);
+
+                _mcpPort = port;
+                _mcpApiKey = apiKey;
+
+                _mcpMaster = new McpMaster(
+                    port,
+                    apiKey,
+                    RestartMcpHost,
+                    GetTerminalStatusForMcp,
+                    LaunchTerminalProgram,
+                    StopTerminalProgram,
+                    KillTerminalProgram,
+                    OpenModeForMcp);
+
+                if (McpSettings.IsEnabled)
+                {
+                    _mcpMaster.Start();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log as System to avoid a MessageBox during startup if no log subscribers exist yet.
+                ServerMaster.SendNewLogMessage($"MCP host start failed: {ex}", Logging.LogMessageType.System);
+            }
+        }
+
+        public void RestartMcpHost()
+        {
+            try
+            {
+                StopMcpHost();
+                StartMcpHost();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void LaunchTerminalProgram(string mode)
+        {
+            try
+            {
+                StopMcpHost();
+
+                string arguments = GetLaunchArguments(mode);
+                arguments += $" -mcpPort {_mcpPort}";
+                arguments += $" -mcpApiKey {_mcpApiKey}";
+
+                string exePath = Process.GetCurrentProcess().MainModule.FileName;
+
+                Process process = new Process();
+                process.StartInfo.FileName = exePath;
+                process.StartInfo.Arguments = arguments;
+                process.Start();
+
+                Process.GetCurrentProcess().Kill();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private string GetLaunchArguments(string mode)
+        {
+            switch (mode?.ToLowerInvariant())
+            {
+                case "tester":
+                    return "-tester";
+                case "testerlight":
+                    return "-testerlight";
+                case "robots":
+                    return "-robots";
+                case "robotslight":
+                    return "-robotslight";
+                case "data":
+                    return "-data";
+                case "optimizer":
+                    return "-optimizer";
+                case "converter":
+                    return "-converter";
+                default:
+                    return string.Empty;
+            }
+        }
+
+        private void StopTerminalProgram()
+        {
+            try
+            {
+                if (Dispatcher.CheckAccess())
+                {
+                    StopTerminalProgramInternal();
+                }
+                else
+                {
+                    Dispatcher.Invoke(StopTerminalProgramInternal);
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void StopTerminalProgramInternal()
+        {
+            _isProgrammaticClose = true;
+            ProccesIsWorked = false;
+
+            try
+            {
+                _activeModeWindow?.Close();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+
+            Close();
+        }
+
+        private void KillTerminalProgram()
+        {
+            try
+            {
+                Process.GetCurrentProcess().Kill();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void OpenModeForMcp(string mode)
+        {
+            try
+            {
+                if (Dispatcher.CheckAccess())
+                {
+                    OpenMode(mode);
+                }
+                else
+                {
+                    Dispatcher.Invoke(() => OpenMode(mode));
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void OpenMode(string mode)
+        {
+            try
+            {
+                if (_startProgram != StartProgram.IsMainWindow)
+                {
+                    ServerMaster.SendNewLogMessage("terminal_open_mode is available only from MainWindow", Logging.LogMessageType.Error);
+                    return;
+                }
+
+                switch (mode?.ToLowerInvariant())
+                {
+                    case "tester":
+                        ButtonTesterCandleOne_Click(null, null);
+                        break;
+                    case "testerlight":
+                        ButtonTesterLight_Click(null, null);
+                        break;
+                    case "robots":
+                        ButtonRobotCandleOne_Click(null, null);
+                        break;
+                    case "robotslight":
+                        ButtonRobotLight_Click(null, null);
+                        break;
+                    case "data":
+                        ButtonData_Click(null, null);
+                        break;
+                    case "optimizer":
+                        ButtonOptimizer_Click(null, null);
+                        break;
+                    case "converter":
+                        ButtonConverter_Click(null, null);
+                        break;
+                    default:
+                        ServerMaster.SendNewLogMessage($"Unknown mode for terminal_open_mode: {mode}", Logging.LogMessageType.Error);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void StopMcpHost()
+        {
+            try
+            {
+                _mcpMaster?.Stop();
+                _mcpMaster = null;
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private McpTerminalStatus GetTerminalStatusForMcp()
+        {
+            var status = new McpTerminalStatus
+            {
+                Mode = _startProgram.ToString(),
+                Version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(),
+                ProcessStarted = Process.GetCurrentProcess().StartTime,
+                IsMainWindowVisible = false
+            };
+
+            try
+            {
+                if (Dispatcher.CheckAccess())
+                {
+                    status.IsMainWindowVisible = IsVisible;
+                }
+                else
+                {
+                    Dispatcher.Invoke(() => { status.IsMainWindowVisible = IsVisible; });
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return status;
+        }
+
+        private void ParseMcpCommandLineArgs(ref int port, ref string apiKey)
+        {
+            try
+            {
+                string[] args = Environment.GetCommandLineArgs();
+
+                for (int i = 0; i < args.Length; i++)
+                {
+                    if (args[i].Equals("-mcpPort", StringComparison.OrdinalIgnoreCase)
+                        && i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[i + 1], out int parsedPort))
+                        {
+                            port = parsedPort;
+                        }
+                    }
+                    else if (args[i].Equals("-mcpApiKey", StringComparison.OrdinalIgnoreCase)
+                        && i + 1 < args.Length)
+                    {
+                        apiKey = args[i + 1];
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        #endregion
+
         private void Reboot(string message)
         {
 
@@ -350,6 +657,7 @@ namespace OsEngine
             ImagePadlock.MouseLeave += ImagePadlock_MouseLeave;
             ImagePadlock.MouseDown += ImagePadlock_MouseDown;
             ButtonSettings.IsEnabled = false;
+            ButtonApi.IsEnabled = false;
             ButtonRobot.IsEnabled = false;
             ButtonTester.IsEnabled = false;
             ButtonData.IsEnabled = false;
@@ -402,6 +710,7 @@ namespace OsEngine
 
             ImagePadlock.Visibility = Visibility.Hidden;
             ButtonSettings.IsEnabled = true;
+            ButtonApi.IsEnabled = true;
             ButtonRobot.IsEnabled = true;
             ButtonTester.IsEnabled = true;
             ButtonData.IsEnabled = true;
@@ -579,8 +888,11 @@ namespace OsEngine
                 _startProgram = StartProgram.IsTester;
                 ServerMaster.TesterStarted();
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 TesterUi candleOneUi = new TesterUi();
+                _activeModeWindow = candleOneUi;
                 candleOneUi.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(5000);
@@ -599,8 +911,11 @@ namespace OsEngine
                 _startProgram = StartProgram.IsTester;
                 ServerMaster.TesterStarted();
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 TesterUiLite candleOneUi = new TesterUiLite();
+                _activeModeWindow = candleOneUi;
                 candleOneUi.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(5000);
@@ -619,8 +934,11 @@ namespace OsEngine
                 _startProgram = StartProgram.IsOsTrader;
                 ServerMaster.RealStarted();
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 RobotUi candleOneUi = new RobotUi();
+                _activeModeWindow = candleOneUi;
                 candleOneUi.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(5000);
@@ -639,8 +957,11 @@ namespace OsEngine
                 _startProgram = StartProgram.IsOsTrader;
                 ServerMaster.RealStarted();
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 RobotUiLite candleOneUi = new RobotUiLite();
+                _activeModeWindow = candleOneUi;
                 candleOneUi.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(5000);
@@ -658,8 +979,13 @@ namespace OsEngine
             {
                 _startProgram = StartProgram.IsOsData;
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 OsDataUi ui = new OsDataUi();
+                _activeModeWindow = ui;
+                _mcpMaster?.SetOsDataMaster(ui.Master);
                 ui.ShowDialog();
+                _activeModeWindow = null;
+                _mcpMaster?.SetOsDataMaster(null);
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(5000);
@@ -677,8 +1003,11 @@ namespace OsEngine
             {
                 _startProgram = StartProgram.IsOsConverter;
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 OsConverterUi ui = new OsConverterUi();
+                _activeModeWindow = ui;
                 ui.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(10000);
@@ -697,8 +1026,11 @@ namespace OsEngine
                 _startProgram = StartProgram.IsOsOptimizer;
                 ServerMaster.OptimizerStarted();
                 Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
                 OptimizerUi ui = new OptimizerUi();
+                _activeModeWindow = ui;
                 ui.ShowDialog();
+                _activeModeWindow = null;
                 Close();
                 ProccesIsWorked = false;
                 Thread.Sleep(10000);
@@ -732,6 +1064,27 @@ namespace OsEngine
         }
 
         private PrimeSettingsMasterUi _settingsUi;
+
+        private void ButtonApi_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_mcpApiUi == null)
+                {
+                    _mcpApiUi = new McpApiUi(_mcpMaster, RestartMcpHost);
+                    _mcpApiUi.Show();
+                    _mcpApiUi.Closing += delegate { _mcpApiUi = null; };
+                }
+                else
+                {
+                    _mcpApiUi.Activate();
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
 
         private void CandleConverter_Click(object sender, RoutedEventArgs e)
         {
@@ -768,6 +1121,22 @@ namespace OsEngine
                 else if (Array.Exists(args, a => a.Equals("-robotslight")))
                 {
                     ButtonRobotLight_Click(this, default);
+                }
+                else if (Array.Exists(args, a => a.Equals("-testerlight")))
+                {
+                    ButtonTesterLight_Click(this, default);
+                }
+                else if (Array.Exists(args, a => a.Equals("-data")))
+                {
+                    ButtonData_Click(this, default);
+                }
+                else if (Array.Exists(args, a => a.Equals("-optimizer")))
+                {
+                    ButtonOptimizer_Click(this, default);
+                }
+                else if (Array.Exists(args, a => a.Equals("-converter")))
+                {
+                    ButtonConverter_Click(this, default);
                 }
                 else if (Array.Exists(args, a => a.Equals("-error")) && PrimeSettingsMaster.RebootTradeUiLight)
                 {

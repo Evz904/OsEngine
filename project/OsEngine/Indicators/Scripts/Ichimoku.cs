@@ -1,0 +1,266 @@
+using System.Collections.Generic;
+using System.Drawing;
+using OsEngine.Entity;
+using OsEngine.Language;
+
+namespace OsEngine.Indicators
+{
+    [Indicator("Ichimoku")]
+    public class Ichimoku : Aindicator
+    {
+        public override string Description
+        {
+            get
+            {
+                string eng = "The Ichimoku indicator plots five lines — Tenkan, Kijun, Chinkou, Senkou A, and Senkou B — forming a cloud that simultaneously shows trend, momentum, support/resistance levels, and trading signals. " +
+                             "Traders use Tenkan-Kijun crossovers, price breaking out of the cloud, and Chinkou position to find entries and filter trades in the direction of the trend.";
+
+                string ru = "Индикатор Ишимоку строит пять линий — Tenkan, Kijun, Chinkou, Senkou A и Senkou B — формируя облако, которое одновременно показывает тренд, импульс, уровни поддержки/сопротивления и торговые сигналы. " +
+                            "Трейдеры используют пересечение Tenkan и Kijun, выход цены из облака и положение Chinkou для поиска входов и фильтрации сделок по направлению тренда.";
+
+                return OsLocalization.ConvertToLocString($"Eng:{eng}_Ru:{ru}_");
+            }
+        }
+
+        private IndicatorParameterInt _first;
+        private IndicatorParameterInt _second;
+        private IndicatorParameterInt _third;
+        private IndicatorParameterInt _displacement;
+        private IndicatorParameterInt _chinkouSpan;
+
+        private IndicatorDataSeries _seriesEtalon;
+        private IndicatorDataSeries _seriesRoundet;
+        private IndicatorDataSeries _seriesLate;
+        private IndicatorDataSeries _seriesFirst;
+        private IndicatorDataSeries _seriesSecond;
+
+        public override void OnStateChange(IndicatorState state)
+        {
+            if (state == IndicatorState.Configure)
+            {
+                _first = CreateParameterInt("Tenkan Sen", 9);
+                _second = CreateParameterInt("Kijun Sen", 26);
+                _third = CreateParameterInt("Senkou Span B", 52);
+                _displacement = CreateParameterInt("Displacement", 26);
+                _chinkouSpan = CreateParameterInt("Chinkou Span", 26);
+
+                _seriesEtalon = CreateSeries("Tenkan", Color.BlueViolet, IndicatorChartPaintType.Line, true);
+                _seriesEtalon.CanReBuildHistoricalValues = false;
+
+                _seriesRoundet = CreateSeries("Kijun", Color.OrangeRed, IndicatorChartPaintType.Line, true);
+                _seriesRoundet.CanReBuildHistoricalValues = false;
+
+                _seriesLate = CreateSeries("Chinkou", Color.DarkRed, IndicatorChartPaintType.Point, true);
+                _seriesLate.CanReBuildHistoricalValues = true;
+
+                _seriesFirst = CreateSeries("Senkou A", Color.LimeGreen, IndicatorChartPaintType.Line, true);
+                _seriesFirst.CanReBuildHistoricalValues = false;
+
+                _seriesSecond = CreateSeries("Senkou B", Color.DodgerBlue, IndicatorChartPaintType.Line, true);
+                _seriesSecond.CanReBuildHistoricalValues = false;
+
+            }
+            else if (state == IndicatorState.Dispose)
+            {
+                if (_valuesEtalonLine_Kejun_sen != null)
+                    _valuesEtalonLine_Kejun_sen.Clear();
+
+                if (_valuesLineRounded_Teken_sen != null)
+                    _valuesLineRounded_Teken_sen.Clear();
+
+                if (_valuesLineLate_Chinkou_span != null)
+                    _valuesLineLate_Chinkou_span.Clear();
+
+                if (_valuesLineFirst_Senkkou_span_A != null)
+                    _valuesLineFirst_Senkkou_span_A.Clear();
+
+                if (_valuesLineSecond_Senkou_span_B != null)
+                    _valuesLineSecond_Senkou_span_B.Clear();
+            }
+        }
+
+        public override void OnProcess(List<Candle> candles, int index)
+        {
+            if (index == 0
+                && _valuesEtalonLine_Kejun_sen != null
+                && _valuesLineRounded_Teken_sen != null
+                && _valuesLineLate_Chinkou_span != null
+                && _valuesLineFirst_Senkkou_span_A != null
+                && _valuesLineSecond_Senkou_span_B != null)
+            {
+                _valuesEtalonLine_Kejun_sen.Clear();
+                _valuesLineRounded_Teken_sen.Clear();
+                _valuesLineLate_Chinkou_span.Clear();
+                _valuesLineFirst_Senkkou_span_A.Clear();
+                _valuesLineSecond_Senkou_span_B.Clear();
+            }
+
+            RebuildInternalValues(candles);
+
+            _seriesEtalon.Values[index] = _valuesLineRounded_Teken_sen[index];
+            _seriesRoundet.Values[index] = _valuesEtalonLine_Kejun_sen[index];
+
+            if (index - _chinkouSpan.ValueInt > 0)
+            {
+                _seriesLate.Values[index - _chinkouSpan.ValueInt] = _valuesLineLate_Chinkou_span[index - _chinkouSpan.ValueInt];
+            }
+
+            _seriesFirst.Values[index] = _valuesLineFirst_Senkkou_span_A[index];
+            _seriesSecond.Values[index] = _valuesLineSecond_Senkou_span_B[index];
+        }
+
+        private List<decimal> _valuesEtalonLine_Kejun_sen = new List<decimal>();
+        private List<decimal> _valuesLineRounded_Teken_sen = new List<decimal>();
+        private List<decimal> _valuesLineLate_Chinkou_span = new List<decimal>();
+        private List<decimal> _valuesLineFirst_Senkkou_span_A = new List<decimal>();
+        private List<decimal> _valuesLineSecond_Senkou_span_B = new List<decimal>();
+
+        private void RebuildInternalValues(List<Candle> candles)
+        {
+            if (_valuesEtalonLine_Kejun_sen != null &&
+                _valuesEtalonLine_Kejun_sen.Count + 1 == candles.Count)
+            {
+                ProcessOne(candles);
+            }
+            else if (_valuesEtalonLine_Kejun_sen != null &&
+                     _valuesEtalonLine_Kejun_sen.Count == candles.Count)
+            {
+                ProcessLast(candles);
+            }
+            else
+            {
+                ProcessAll(candles);
+            }
+        }
+
+        private void ProcessOne(List<Candle> candles)
+        {
+            if (candles == null)
+            {
+                return;
+            }
+
+            if (_valuesEtalonLine_Kejun_sen == null)
+            {
+                _valuesEtalonLine_Kejun_sen = new List<decimal>();
+                _valuesLineRounded_Teken_sen = new List<decimal>();
+                _valuesLineLate_Chinkou_span = new List<decimal>();
+                _valuesLineFirst_Senkkou_span_A = new List<decimal>();
+                _valuesLineSecond_Senkou_span_B = new List<decimal>();
+            }
+
+            _valuesEtalonLine_Kejun_sen.Add(GetLine(candles, candles.Count - 1, _second.ValueInt, 0));
+            _valuesLineRounded_Teken_sen.Add(GetLine(candles, candles.Count - 1, _first.ValueInt, 0));
+
+            if (candles.Count - 1 >= _chinkouSpan.ValueInt)
+            {
+                _valuesLineLate_Chinkou_span.Add(GetLineLate(candles, candles.Count - 1 - _chinkouSpan.ValueInt));
+            }
+
+            _valuesLineFirst_Senkkou_span_A.Add(GetLineFirst(candles, candles.Count - 1));
+            _valuesLineSecond_Senkou_span_B.Add(GetLine(candles, candles.Count - 1, _third.ValueInt, _displacement.ValueInt));
+        }
+
+        private void ProcessAll(List<Candle> candles)
+        {
+            if (candles == null)
+            {
+                return;
+            }
+
+            _valuesEtalonLine_Kejun_sen = new List<decimal>();
+            _valuesLineRounded_Teken_sen = new List<decimal>();
+            _valuesLineLate_Chinkou_span = new List<decimal>();
+            _valuesLineFirst_Senkkou_span_A = new List<decimal>();
+            _valuesLineSecond_Senkou_span_B = new List<decimal>();
+
+            for (int i = 0; i < candles.Count; i++)
+            {
+
+                _valuesEtalonLine_Kejun_sen.Add(GetLine(candles, i, _second.ValueInt, 0));
+                _valuesLineRounded_Teken_sen.Add(GetLine(candles, i, _first.ValueInt, 0));
+
+                if (i >= _chinkouSpan.ValueInt)
+                {
+                    _valuesLineLate_Chinkou_span.Add(GetLineLate(candles, i - _chinkouSpan.ValueInt));
+                }
+
+                _valuesLineFirst_Senkkou_span_A.Add(GetLineFirst(candles, i));
+                _valuesLineSecond_Senkou_span_B.Add(GetLine(candles, i, _third.ValueInt, _displacement.ValueInt));
+            }
+        }
+
+        private void ProcessLast(List<Candle> candles)
+        {
+            if (candles == null)
+            {
+                return;
+            }
+
+            _valuesEtalonLine_Kejun_sen[_valuesEtalonLine_Kejun_sen.Count - 1] =
+                (GetLine(candles, candles.Count - 1, _second.ValueInt, 0));
+            _valuesLineRounded_Teken_sen[_valuesLineRounded_Teken_sen.Count - 1] =
+                (GetLine(candles, candles.Count - 1, _first.ValueInt, 0));
+
+            if (candles.Count >= _chinkouSpan.ValueInt)
+            {
+                _valuesLineLate_Chinkou_span[_valuesLineLate_Chinkou_span.Count - 1] =
+                    (GetLineLate(candles, candles.Count - 1 - _chinkouSpan.ValueInt));
+            }
+
+            _valuesLineFirst_Senkkou_span_A[_valuesLineFirst_Senkkou_span_A.Count - 1] =
+                (GetLineFirst(candles, candles.Count - 1));
+            _valuesLineSecond_Senkou_span_B[_valuesLineSecond_Senkou_span_B.Count - 1] =
+                (GetLine(candles, candles.Count - 1, _third.ValueInt, _displacement.ValueInt));
+        }
+
+        private decimal GetLine(List<Candle> candles, int index, int length, int shift)
+        {
+            index = index - shift;
+
+            if (index < 0)
+            {
+                return candles[candles.Count - 1].Close;
+            }
+
+            decimal high = 0;
+            decimal low = decimal.MaxValue;
+
+            for (int i = index; i > -1 && i > index - length; i--)
+            {
+                if (candles[i].High > high)
+                {
+                    high = candles[i].High;
+                }
+
+                if (candles[i].Low < low)
+                {
+                    low = candles[i].Low;
+                }
+            }
+
+            return (low + high) / 2;
+        }
+
+        public decimal GetLineLate(List<Candle> candles, int index)
+        {
+            if (index + _chinkouSpan.ValueInt >= candles.Count)
+            {
+                return candles[candles.Count - 1].Close;
+            }
+
+            return candles[index + _chinkouSpan.ValueInt].Close;
+        }
+
+        public decimal GetLineFirst(List<Candle> candles, int index)
+        {
+            if (_displacement.ValueInt >= index + 1 ||
+                _first.ValueInt >= index + 1 ||
+                index - _displacement.ValueInt < _displacement.ValueInt)
+            {
+                return 0;
+            }
+            return (_valuesEtalonLine_Kejun_sen[index - _displacement.ValueInt] + _valuesLineRounded_Teken_sen[index - _displacement.ValueInt]) / 2;
+        }
+    }
+}

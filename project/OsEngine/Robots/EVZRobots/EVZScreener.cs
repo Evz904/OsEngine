@@ -123,7 +123,7 @@ namespace OsEngine.Robots.Screeners
 
             // Basic settings
             _Regime = CreateParameter("Regime", "Off", new[] { "Off", "On", "OnlyLong", "OnlyShort", "OnlyClosePosition" });
-            _MAType = CreateParameter("MA type", "EMA", new[] {  "EMA", "Jma" });
+            _MAType = CreateParameter("MA type", "Ema", new[] {  "Ema", "Jma" });
             // Securities settings
             _topVolumeSecurities = CreateParameter("Top volume securities", 15, 0, 20, 1);
             _maxPoses = CreateParameter("Max poses", 2, 1, 20, 1);
@@ -167,7 +167,8 @@ namespace OsEngine.Robots.Screeners
 
             // Create indicator Jma _MAType
             //_tabScreener.CreateCandleIndicator(1, "Jma", new List<string>() { _MALenFast.ValueInt.ToString(), "6", "Close" }, "Prime");
-            _tabScreener.CreateCandleIndicator(1, _MAType.ValueString, new List<string>() { _MALenFast.ValueInt.ToString(), "Close" }, "Prime");
+            //_tabScreener.CreateCandleIndicator(1, _MAType.ValueString, new List<string>() { _MALenFast.ValueInt.ToString(), "Close" }, "Prime");
+            _tabScreener.CreateCandleIndicator(1, "Ema", new List<string>() { _MALenFast.ValueInt.ToString(), "Close" }, "Prime");
             _RSILengthFast = CreateParameter("RSI length fast", 6, 5, 28, 2);
             _RSILengthMedium = CreateParameter("RSI length мedium", 14, 10, 48, 2);
             _RSILengthSlow = CreateParameter("RSI length slow", 48, 15, 52, 2);

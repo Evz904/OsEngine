@@ -361,6 +361,57 @@ if (_host != null)
 }
 ```
 
+### 4.8. Окна создаются только парой XAML + code-behind
+
+Любое окно движка — это пара `.xaml` (разметка) и `.xaml.cs` (`public partial class`, логика). Запрещено создавать окна целиком в коде (`class MyWindow : Window` с построением контролов в конструкторе). Такой паттерн встречается только внутри некоторых роботов (например `EditRatesWindow` в `PayOfMarginBot`) — это их внутренняя кухня, а не образец. Не копируй паттерны из роботов в UI движка: роботы живут по своим правилам (`CONTEXT_ROBOTS.md`, `CONTEXT_ROBOTS_ARCHITECTURE.md`), движок — по этим.
+
+### 4.9. Компоновка окна — с привязкой к краям
+
+Элементы окна должны быть привязаны к краям через `Grid` с `RowDefinitions`/`ColumnDefinitions` (`*`, `Auto`), `Dock` у WinForms-контролов и `HorizontalAlignment`/`VerticalAlignment`. Запрещено размещать контент «как получится» в `StackPanel` без якорей — при изменении размера окна таблицы и кнопки «плывут». Кнопки подтверждения («Принять» и т.п.) — всегда у нижней границы.
+
+```xml
+<Grid>
+    <Grid.RowDefinitions>
+        <RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <WindowsFormsHost Name="HostTable" Grid.Row="0"/>
+    <Button Name="ButtonAccept" Grid.Row="1" HorizontalAlignment="Right" Margin="0,5,10,10"/>
+</Grid>
+```
+
+### 4.10. WindowsFormsHost перекрывает WPF-элементы (airspace)
+
+WinForms-контент внутри `WindowsFormsHost` всегда рисуется поверх любых WPF-элементов в той же области — z-order не работает. WPF-кнопки и подписи размещай только в полосах, свободных от хоста (отдельные строки или колонки `Grid`), иначе они будут невидимы.
+
+### 4.11. Диалоги подтверждения и информационные сообщения
+
+Для диалогов с пользователем используй штатные окна движка из `OsEngine/Entity/` — они в теме приложения и локализованы. `MessageBox` (WPF или WinForms) в новом коде не используй.
+
+- **Подтверждение действия** — `AcceptDialogUi`. Результат — в поле `UserAcceptAction` после `ShowDialog()`:
+
+```csharp
+AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.ConvertToLocString(
+    "Eng:Sources settings will be overwritten. Continue_" +
+    "Ru:Настройки источников будут перезаписаны. Продолжить_"));
+ui.ShowDialog();
+
+if (ui.UserAcceptAction == false)
+{
+    return;
+}
+```
+
+- **Информационное сообщение** (одна кнопка) — `CustomMessageBoxUi`:
+
+```csharp
+CustomMessageBoxUi uiInfo = new CustomMessageBoxUi(OsLocalization.ConvertToLocString(
+    "Eng:First set the portfolio number_Ru:Сначала укажите номер портфеля_"));
+uiInfo.ShowDialog();
+```
+
+Тексты передавай через `OsLocalization.ConvertToLocString` (ограничения из 9.1). Ошибку дополнительно дублируй в лог через `SendNewLogMessage`.
+
 ---
 
 ## 5. Потокобезопасность
@@ -596,6 +647,19 @@ private void Chart_Click(object sender, EventArgs e)
 }
 ```
 
+### 7.5. Парсинг чисел из пользовательского ввода — только через `ToDecimal()`
+
+Для преобразования строки в число используй расширение `.ToDecimal()` из `OsEngine/Entity/Extensions.cs` — оно принимает и точку, и запятую независимо от региональных настроек. Запрещены `decimal.TryParse` с неявной культурой и костыли вида `Replace(".", ",")`: в русской локали ввод с точкой молча превращается в 0 или мусор, и данные пользователя теряются без ошибки.
+
+```csharp
+// Плохо
+decimal rate = 0;
+decimal.TryParse(cell.Value?.ToString(), out rate);
+
+// Хорошо
+decimal rate = cell.Value?.ToString().ToDecimal() ?? 0;
+```
+
 ---
 
 ## 8. Правила комментирования в коде
@@ -633,6 +697,31 @@ int i = 0; // создаём счётчик
 
 // Хорошо
 int i = 0; // индекс начинается с нуля, т.к. первая строка — заголовок
+```
+
+---
+
+## 9. Локализация (OsLocalization)
+
+### 9.1. Запрещённые символы в строках `ConvertToLocString`
+
+Локализованные строки задаются в формате `"Eng:..._Ru:..._"`. Парсер `OsLocalization.ConvertToLocString` разбивает строку по `_` на сегменты, а сегмент — по `:` на язык и текст. Поэтому внутри текста **запрещены символы `:` и `_`**: двоеточие обрежет текст до первого вхождения, подчёркивание разорвёт сегмент. Обрезка происходит молча, без ошибок. Вместо `:` используй точку или тире, время пиши через точку (`7.00`, а не `7:00`).
+
+```csharp
+// Плохо — текст обрежется до "Eng:When enabled, see the docs"
+"Eng:When enabled, see the docs: candles and trades are filtered._"
+
+// Хорошо
+"Eng:When enabled, see the docs. Candles and trades are filtered._"
+```
+
+### 9.2. Описания параметров серверов
+
+Параметру сервера можно задать пояснение через свойство `Comment` — в UI появляется кнопка «?» с диалогом. Текст тоже идёт через `OsLocalization` (с ограничением из 9.1).
+
+```csharp
+ServerParameterBool useStock = CreateParameterBoolean(OsLocalization.Market.UseStock, true);
+useStock.Comment = OsLocalization.Market.UseStockDescription;
 ```
 
 ---

@@ -26,8 +26,10 @@ namespace OsEngine.Market.Servers.BitGetUnified
 {
     public class BitGetUnifiedServer : AServer
     {
-        public BitGetUnifiedServer()
+        public BitGetUnifiedServer(int uniqueNumber)
         {
+            ServerNum = uniqueNumber;
+
             BitGetUnifiedServerRealization realization = new BitGetUnifiedServerRealization();
             ServerRealization = realization;
 
@@ -36,12 +38,16 @@ namespace OsEngine.Market.Servers.BitGetUnified
             CreateParameterPassword(OsLocalization.Market.ServerParameterPassphrase, "");
             CreateParameterBoolean("Hedge Mode", true);
             CreateParameterBoolean("Extended Data", false);
+            CreateParameterEnum("Market Depth level", "books50", new List<string> { "books5", "books50" });
+
+            realization.UseFullMarketDepth = this._needToUseFullMarketDepth;
 
             ServerParameters[0].Comment = OsLocalization.Market.Label246;
             ServerParameters[1].Comment = OsLocalization.Market.Label247;
             ServerParameters[2].Comment = OsLocalization.Market.Label271;
             ServerParameters[3].Comment = OsLocalization.Market.Label250;
             ServerParameters[4].Comment = OsLocalization.Market.Label270;
+            ServerParameters[5].Comment = OsLocalization.Market.Label374;
         }
     }
 
@@ -55,54 +61,67 @@ namespace OsEngine.Market.Servers.BitGetUnified
 
             Thread threadMessageReaderPublic = new Thread(MessageReaderPublic);
             threadMessageReaderPublic.Name = "MessageReaderPublic";
+            threadMessageReaderPublic.IsBackground = true;
             threadMessageReaderPublic.Start();
 
             Thread threadMessageReaderPrivate = new Thread(MessageReaderPrivate);
             threadMessageReaderPrivate.Name = "MessageReaderPrivate";
+            threadMessageReaderPrivate.IsBackground = true;
             threadMessageReaderPrivate.Start();
 
             Thread threadCheckingConnect = new Thread(CheckAliveWebSocket);
             threadCheckingConnect.Name = "CheckAliveWebSocket";
+            threadCheckingConnect.IsBackground = true;
             threadCheckingConnect.Start();
 
             Thread threadExtendedData = new Thread(ThreadExtendedData);
             threadExtendedData.Name = "ThreadBitGetUnifiedExtendedData";
+            threadExtendedData.IsBackground = true;
             threadExtendedData.Start();
 
             Thread threadPortfilio = new Thread(PortfolioUpdater);
             threadPortfilio.Name = "BitgetUnified_PortfolioUpdater";
+            threadPortfilio.IsBackground = true;
             threadPortfilio.Start();
 
             Thread threadMessageReaderMarketDepthSpot = new Thread(ThreadMessageReaderMarketDepthSpot);
-            threadMessageReaderMarketDepthSpot.Name = "ThreadOkxMessageReaderMarketDepthSpot";
+            threadMessageReaderMarketDepthSpot.Name = "ThreadBitGetUnifiedMessageReaderMarketDepthSpot";
+            threadMessageReaderMarketDepthSpot.IsBackground = true;
             threadMessageReaderMarketDepthSpot.Start();
 
             Thread threadMessageReaderMarketDepthFuturesUsdt = new Thread(ThreadMessageReaderMarketDepthFuturesUsdt);
             threadMessageReaderMarketDepthFuturesUsdt.Name = "ThreadBitGetUnifiedMessageReaderMarketDepthFuturesUsdt";
+            threadMessageReaderMarketDepthFuturesUsdt.IsBackground = true;
             threadMessageReaderMarketDepthFuturesUsdt.Start();
 
             Thread threadMessageReaderMarketDepthFuturesUsdc = new Thread(ThreadMessageReaderMarketDepthFuturesUsdc);
             threadMessageReaderMarketDepthFuturesUsdc.Name = "ThreadBitGetUnifiedMessageReaderMarketDepthFuturesUsdc";
+            threadMessageReaderMarketDepthFuturesUsdc.IsBackground = true;
             threadMessageReaderMarketDepthFuturesUsdc.Start();
 
             Thread threadMessageReaderMarketDepthFuturesCoin = new Thread(ThreadMessageReaderMarketDepthFuturesCoin);
             threadMessageReaderMarketDepthFuturesCoin.Name = "ThreadBitGetUnifiedMessageReaderMarketDepthFuturesCoin";
+            threadMessageReaderMarketDepthFuturesCoin.IsBackground = true;
             threadMessageReaderMarketDepthFuturesCoin.Start();
 
             Thread threadMessageReaderTradesSpot = new Thread(ThreadMessageReaderTradesSpot);
             threadMessageReaderTradesSpot.Name = "ThreadBitGetUnifiedMessageReaderTradesSpot";
+            threadMessageReaderTradesSpot.IsBackground = true;
             threadMessageReaderTradesSpot.Start();
 
             Thread threadMessageReaderTradesFuturesUsdt = new Thread(ThreadMessageReaderTradesFuturesUsdt);
             threadMessageReaderTradesFuturesUsdt.Name = "ThreadBitGetUnifiedMessageReaderTradesFuturesUsdt";
+            threadMessageReaderTradesFuturesUsdt.IsBackground = true;
             threadMessageReaderTradesFuturesUsdt.Start();
 
             Thread threadMessageReaderTradesFuturesUsdc = new Thread(ThreadMessageReaderTradesFuturesUsdc);
             threadMessageReaderTradesFuturesUsdc.Name = "ThreadBitGetUnifiedMessageReaderTradesFuturesUsdc";
+            threadMessageReaderTradesFuturesUsdc.IsBackground = true;
             threadMessageReaderTradesFuturesUsdc.Start();
 
             Thread threadMessageReaderTradesFuturesCoin = new Thread(ThreadMessageReaderTradesFuturesCoin);
             threadMessageReaderTradesFuturesCoin.Name = "ThreadBitGetUnifiedMessageReaderTradesFuturesCoin";
+            threadMessageReaderTradesFuturesCoin.IsBackground = true;
             threadMessageReaderTradesFuturesCoin.Start();
 
         }
@@ -135,6 +154,8 @@ namespace OsEngine.Market.Servers.BitGetUnified
             {
                 _extendedMarketData = false;
             }
+
+            _marketDepthTopic = ((ServerParameterEnum)ServerParameters[5]).Value;
 
             try
             {
@@ -262,6 +283,21 @@ namespace OsEngine.Market.Servers.BitGetUnified
         }
 
         private bool _extendedMarketData;
+
+        public ServerParameterBool UseFullMarketDepth;
+
+        private string _marketDepthTopic = "books50";
+
+        private string GetDepthTopic()
+        {
+            if (UseFullMarketDepth != null
+                && UseFullMarketDepth.Value == false)
+            {
+                return "books1";
+            }
+
+            return _marketDepthTopic;
+        }
 
         #endregion
 
@@ -1547,9 +1583,30 @@ namespace OsEngine.Market.Servers.BitGetUnified
 
                 WebSocket webSocketPublic = _webSocketPublic[_webSocketPublic.Count - 1];
 
+                string category = security.NameFull.Split('_')[0];
+
+                if (category == "MARGIN")
+                {
+                    category = "SPOT";
+                }
+
+                string instType = category.ToLower();
+                string symbol = security.Name.Split('.')[0];
+
+                List<string> argsList = new List<string>();
+                argsList.Add($"{{\"instType\": \"{instType}\",\"topic\": \"{GetDepthTopic()}\",\"symbol\": \"{symbol}\"}}");
+                argsList.Add($"{{\"instType\": \"{instType}\",\"topic\": \"publicTrade\",\"symbol\": \"{symbol}\"}}");
+
+                bool needTicker = _extendedMarketData && category != "SPOT" && category != "MARGIN";
+
+                if (needTicker)
+                {
+                    argsList.Add($"{{\"instType\": \"{instType}\",\"topic\": \"ticker\",\"symbol\": \"{symbol}\"}}");
+                }
+
                 if (webSocketPublic.ReadyState == WebSocketState.Open
                     && _subscribedSecutiries.Count != 0
-                    && _subscribedSecutiries.Count % 50 == 0)
+                    && _subscribedSecutiries.Count % 20 == 0)
                 {
                     // creating a new socket
                     WebSocket newSocket = CreateNewPublicSocket();
@@ -1575,19 +1632,11 @@ namespace OsEngine.Market.Servers.BitGetUnified
 
                 if (webSocketPublic != null)
                 {
-                    string category = security.NameFull.Split('_')[0];
+                    // one batched subscribe message for all channels of the instrument
+                    webSocketPublic.SendAsync($"{{\"op\": \"subscribe\",\"args\": [{string.Join(",", argsList)}]}}");
 
-                    if (category == "MARGIN")
+                    if (needTicker)
                     {
-                        category = "SPOT";
-                    }
-
-                    webSocketPublic.SendAsync($"{{\"op\": \"subscribe\",\"args\": [{{\"instType\": \"{category.ToLower()}\",\"topic\": \"books50\",\"symbol\": \"{security.Name.Split('.')[0]}\"}}]}}");
-                    webSocketPublic.SendAsync($"{{\"op\": \"subscribe\",\"args\": [{{ \"instType\": \"{category.ToLower()}\",\"topic\": \"publicTrade\",\"symbol\": \"{security.Name.Split('.')[0]}\"}}]}}");
-
-                    if (_extendedMarketData && category != "SPOT" && category != "MARGIN")
-                    {
-                        webSocketPublic.SendAsync($"{{\"op\": \"subscribe\",\"args\": [{{ \"instType\": \"{category.ToLower()}\",\"topic\": \"ticker\",\"symbol\": \"{security.Name.Split('.')[0]}\"}}]}}");
                         GetFundingData(security.Name, category);
                         GetFundingHistory(security.Name, category);
                     }
@@ -1759,7 +1808,7 @@ namespace OsEngine.Market.Servers.BitGetUnified
                                             category = "SPOT";
                                         }
 
-                                        argsList.Add($"{{\"instType\": \"{category.ToLower()}\",\"topic\": \"books50\",\"symbol\": \"{name}\"}}");
+                                        argsList.Add($"{{\"instType\": \"{category.ToLower()}\",\"topic\": \"{GetDepthTopic()}\",\"symbol\": \"{name}\"}}");
                                         argsList.Add($"{{\"instType\": \"{category.ToLower()}\",\"topic\": \"publicTrade\",\"symbol\": \"{name}\"}}");
 
                                         if (_extendedMarketData && category != "SPOT" && category != "MARGIN")
@@ -1796,8 +1845,8 @@ namespace OsEngine.Market.Servers.BitGetUnified
                     List<string> privateArgsList =
                     [
                         $"{{\"instType\": \"UTA\",\"topic\": \"account\"}}",
-                        $"{{\"instType\": \"UTA\",\"topic\": \"order\"}}]}}",
-                        $"{{\"instType\": \"UTA\",\"topic\": \"position\"}}]}}",
+                        $"{{\"instType\": \"UTA\",\"topic\": \"order\"}}",
+                        $"{{\"instType\": \"UTA\",\"topic\": \"position\"}}",
                         $"{{\"instType\": \"UTA\",\"topic\": \"fill\"}}"
                     ];
 
@@ -1882,7 +1931,7 @@ namespace OsEngine.Market.Servers.BitGetUnified
                                 Disconnect();
                             }
                         }
-                        else if (message.Contains("books50"))
+                        else if (message.Contains("books"))
                         {
                             if (message.Contains("spot"))
                             {
@@ -2431,8 +2480,8 @@ namespace OsEngine.Market.Servers.BitGetUnified
 
         private decimal GetOpenInterestValue(string securityNameCode)
         {
-            if (_openInterest.Count == 0
-                 || _openInterest == null)
+            if (_openInterest == null
+                || _openInterest.Count == 0)
             {
                 return 0;
             }
@@ -2581,6 +2630,11 @@ namespace OsEngine.Market.Servers.BitGetUnified
                     return;
                 }
 
+                if (_portfolios.Count == 0)
+                {
+                    return;
+                }
+
                 Portfolio portfolio = _portfolios[0];
                 portfolio.UnrealizedPnl = responce.data[0].unrealisedPnL.ToDecimal();
 
@@ -2619,6 +2673,11 @@ namespace OsEngine.Market.Servers.BitGetUnified
                     return;
                 }
 
+                if (_portfolios.Count == 0)
+                {
+                    return;
+                }
+
                 if (positions != null)
                 {
                     if (positions.data.Length > 0)
@@ -2634,7 +2693,7 @@ namespace OsEngine.Market.Servers.BitGetUnified
 
                             string sec = pos.symbol;
 
-                            if (pos.symbol.EndsWith("USDT"))
+                            if (pos.marginCoin == "USDT")
                             {
                                 sec = pos.symbol + ".P";
                             }

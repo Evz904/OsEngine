@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license http://o-s-a.net/doc/license_simple_engine.pdf
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -55,7 +55,12 @@ namespace OsEngine.Journal
             }
 
             ComboBoxChartType.Items.Add("Absolute");
-            ComboBoxChartType.Items.Add("Deposit percent");
+
+            if (_startProgram != StartProgram.IsOsTrader)
+            {
+                ComboBoxChartType.Items.Add("Deposit percent");
+            }
+
             ComboBoxChartType.Items.Add("Percent 1 contract");
 
             ComboBoxChartType.SelectedItem = "Absolute";
@@ -885,6 +890,9 @@ namespace OsEngine.Journal
                     _gridStatistics.Rows.Add(); //string addition/ добавление строки
                 }
 
+                // колонка подписей без явного стиля показывает дефолтный чёрный текст
+                _gridStatistics.Columns[0].DefaultCellStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("GridTextColor");
+
                 _gridStatistics.Rows[0].Cells[0].Value = OsLocalization.Journal.GridRow1;
                 _gridStatistics.Rows[1].Cells[0].Value = OsLocalization.Journal.GridRow2;
                 _gridStatistics.Rows[2].Cells[0].Value = OsLocalization.Journal.GridRow3;
@@ -918,6 +926,17 @@ namespace OsEngine.Journal
                 _gridStatistics.Rows[28].Cells[0].Value = "";
                 _gridStatistics.Rows[29].Cells[0].Value = OsLocalization.Journal.GridRow15;
                 _gridStatistics.Rows[30].Cells[0].Value = OsLocalization.Journal.GridRow16;
+
+                // ячейки созданы из шаблона колонки — присваиваем актуальный стиль темы принудительно
+                for (int i = 0; i < _gridStatistics.Rows.Count; i++)
+                {
+                    for (int y = 0; y < _gridStatistics.Rows[i].Cells.Count; y++)
+                    {
+                        _gridStatistics.Rows[i].Cells[y].Style = _gridStatistics.DefaultCellStyle;
+                    }
+
+                    _gridStatistics.Rows[i].Cells[0].Style.ForeColor = Themes.ThemeManager.GetColorWinForms("GridTextColor");
+                }
             }
             catch (Exception error)
             {
@@ -928,6 +947,21 @@ namespace OsEngine.Journal
         private void _gridStatistics_DataError(object sender, DataGridViewDataErrorEventArgs e)
         {
             ServerMaster.SendNewLogMessage(e.ToString(), Logging.LogMessageType.Error);
+        }
+
+        private static readonly int[] _unreliableStatRows = new int[] { 1, 11, 18, 26, 29 };
+
+        private bool IsUnreliableStatRow(int index)
+        {
+            for (int i = 0; i < _unreliableStatRows.Length; i++)
+            {
+                if (_unreliableStatRows[i] == index)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void PaintStatTable(List<Position> positionsAll, List<Position> positionsLong, List<Position> positionsShort, bool needShowTickState)
@@ -968,21 +1002,52 @@ namespace OsEngine.Journal
                 {
                     for (int i = 0; i < 31; i++)
                     {
-                        _gridStatistics.Rows[i].Cells[2].Value = positionsLongState[i].ToString();
+                        string value = positionsLongState[i].ToString();
+
+                        if (_startProgram == StartProgram.IsOsTrader && IsUnreliableStatRow(i))
+                        {
+                            value = OsLocalization.Journal.NotAvailable;
+                        }
+
+                        _gridStatistics.Rows[i].Cells[2].Value = value;
                     }
                 }
                 if (positionsShortState != null)
                 {
                     for (int i = 0; i < 31; i++)
                     {
-                        _gridStatistics.Rows[i].Cells[3].Value = positionsShortState[i].ToString();
+                        string value = positionsShortState[i].ToString();
+
+                        if (_startProgram == StartProgram.IsOsTrader && IsUnreliableStatRow(i))
+                        {
+                            value = OsLocalization.Journal.NotAvailable;
+                        }
+
+                        _gridStatistics.Rows[i].Cells[3].Value = value;
                     }
                 }
                 if (positionsAllState != null)
                 {
                     for (int i = 0; i < 31; i++)
                     {
-                        _gridStatistics.Rows[i].Cells[1].Value = positionsAllState[i].ToString();
+                        string value = positionsAllState[i].ToString();
+
+                        if (_startProgram == StartProgram.IsOsTrader && IsUnreliableStatRow(i))
+                        {
+                            value = OsLocalization.Journal.NotAvailable;
+                        }
+
+                        _gridStatistics.Rows[i].Cells[1].Value = value;
+                    }
+                }
+
+                // шаблоны колонок захватывают стиль при создании грида —
+                // присваиваем актуальный стиль темы всем ячейкам принудительно
+                for (int i = 0; i < _gridStatistics.Rows.Count; i++)
+                {
+                    for (int y = 0; y < _gridStatistics.Rows[i].Cells.Count; y++)
+                    {
+                        _gridStatistics.Rows[i].Cells[y].Style = _gridStatistics.DefaultCellStyle;
                     }
                 }
             }
@@ -1011,7 +1076,7 @@ namespace OsEngine.Journal
 
                 _chartEquity.Series.Clear();
                 _chartEquity.ChartAreas.Clear();
-                _chartEquity.BackColor = Color.FromArgb(17, 18, 23);
+                _chartEquity.BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
 
                 ChartArea areaLineProfit = new ChartArea("ChartAreaProfit");
                 areaLineProfit.Position.Height = areaLayout[0].Item1;
@@ -1073,16 +1138,18 @@ namespace OsEngine.Journal
 
                 for (int i = 0; i < _chartEquity.ChartAreas.Count; i++)
                 {
-                    _chartEquity.ChartAreas[i].BorderColor = Color.Black;
-                    _chartEquity.ChartAreas[i].BackColor = Color.FromArgb(17, 18, 23);
-                    _chartEquity.ChartAreas[i].CursorY.LineColor = Color.Gainsboro;
-                    _chartEquity.ChartAreas[i].CursorX.LineColor = Color.Black;
-                    _chartEquity.ChartAreas[i].AxisX.TitleForeColor = Color.Gainsboro;
-                    _chartEquity.ChartAreas[i].AxisY.TitleForeColor = Color.Gainsboro;
+                    _chartEquity.ChartAreas[i].BorderColor = Themes.ThemeManager.GetColorWinForms("JournalChartBorderColor");
+                    _chartEquity.ChartAreas[i].BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
+                    _chartEquity.ChartAreas[i].CursorY.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartEquity.ChartAreas[i].CursorX.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartCursorXColor");
+                    _chartEquity.ChartAreas[i].AxisX.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartEquity.ChartAreas[i].AxisY.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
 
                     foreach (var axe in _chartEquity.ChartAreas[i].Axes)
                     {
-                        axe.LabelStyle.ForeColor = Color.Gainsboro;
+                        axe.LabelStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
+                        axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
                     }
                 }
 
@@ -1500,42 +1567,42 @@ namespace OsEngine.Journal
 
                 Series profit = new Series("SeriesProfit");
                 profit.ChartType = SeriesChartType.Line;
-                profit.Color = Color.White;   //DeepSkyBlue;
-                profit.LabelForeColor = Color.White;
+                profit.Color = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");   //DeepSkyBlue;
+                profit.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 profit.YAxisType = AxisType.Secondary;
                 profit.ChartArea = "ChartAreaProfit";
                 profit.BorderWidth = 4;
-                profit.ShadowOffset = 2;
+                profit.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series profitLong = new Series("SeriesProfitLong");
                 profitLong.ChartType = SeriesChartType.Line;
-                profitLong.Color = Color.DeepSkyBlue;   //DeepSkyBlue;
-                profitLong.LabelForeColor = Color.DeepSkyBlue;
+                profitLong.Color = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");   //DeepSkyBlue;
+                profitLong.LabelForeColor = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");
                 profitLong.YAxisType = AxisType.Secondary;
                 profitLong.ChartArea = "ChartAreaProfit";
                 profitLong.BorderWidth = 2;
-                profitLong.ShadowOffset = 2;
+                profitLong.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series profitShort = new Series("SeriesProfitShort");
                 profitShort.ChartType = SeriesChartType.Line;
-                profitShort.Color = Color.DarkOrange;  //DeepSkyBlue;
-                profitShort.LabelForeColor = Color.DarkOrange;
+                profitShort.Color = Themes.ThemeManager.GetColorWinForms("JournalShortColor");  //DeepSkyBlue;
+                profitShort.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
                 profitShort.YAxisType = AxisType.Secondary;
                 profitShort.ChartArea = "ChartAreaProfit";
-                profitShort.ShadowOffset = 2;
+                profitShort.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                 profitShort.BorderWidth = 2;
 
                 Series profitBar = new Series("SeriesProfitBar");
                 profitBar.ChartType = SeriesChartType.Column;
                 profitBar.YAxisType = AxisType.Secondary;
-                profitBar.LabelForeColor = Color.White;
+                profitBar.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 profitBar.ChartArea = "ChartAreaProfitBar";
-                profitBar.ShadowOffset = 2;
+                profitBar.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series nullLine = new Series("SeriesNullLine");
                 nullLine.ChartType = SeriesChartType.Line;
                 nullLine.YAxisType = AxisType.Secondary;
-                nullLine.LabelForeColor = Color.White;
+                nullLine.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 nullLine.ChartArea = "ChartAreaProfit";
                 nullLine.ShadowOffset = 0;
 
@@ -1559,10 +1626,10 @@ namespace OsEngine.Journal
                         profitMonthlyBar = new Series("SeriesMonthlyProfitBar");
                         profitMonthlyBar.ChartType = SeriesChartType.Column;
                         profitMonthlyBar.YAxisType = AxisType.Secondary;
-                        profitMonthlyBar.LabelForeColor = Color.DarkOrange;
-                        profitMonthlyBar.LabelBackColor = Color.FromArgb(17, 18, 23);
+                        profitMonthlyBar.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
+                        profitMonthlyBar.LabelBackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
                         profitMonthlyBar.ChartArea = "ChartAreaMonthlyBar";
-                        profitMonthlyBar.ShadowOffset = 2;
+                        profitMonthlyBar.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                         profitMonthlyBar.SetCustomProperty("PointWidth", "1.0");
                     }
                 }
@@ -1584,10 +1651,10 @@ namespace OsEngine.Journal
                         profitYearlyBar = new Series("SeriesYearlyProfitBar");
                         profitYearlyBar.ChartType = SeriesChartType.Column;
                         profitYearlyBar.YAxisType = AxisType.Secondary;
-                        profitYearlyBar.LabelForeColor = Color.DarkOrange;
-                        profitYearlyBar.LabelBackColor = Color.FromArgb(17, 18, 23);
+                        profitYearlyBar.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
+                        profitYearlyBar.LabelBackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
                         profitYearlyBar.ChartArea = "ChartAreaYearlyBar";
-                        profitYearlyBar.ShadowOffset = 2;
+                        profitYearlyBar.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                         profitYearlyBar.SetCustomProperty("PointWidth", "1.0");
                     }
                 }
@@ -1654,7 +1721,7 @@ namespace OsEngine.Journal
 
                     profitBar.Points.AddXY(i, Math.Round(curProfit, 3));
 
-                    profitBar.Points[profitBar.Points.Count - 1].LabelForeColor = Color.DarkOrange;
+                    profitBar.Points[profitBar.Points.Count - 1].LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
                     profitBar.Points[profitBar.Points.Count - 1].AxisLabel
                         = positionsAll[i].SecurityName + "\n" +
                           Math.Round(curProfit, 3).ToString() + "\n" +
@@ -1675,9 +1742,9 @@ namespace OsEngine.Journal
                         if (i <= profitMonthlyBar.Points.Count - 1)
                         {
                             if (monthlyProfit[keyDate] > 0)
-                                profitMonthlyBar.Points[i].Color = Color.Gainsboro;
+                                profitMonthlyBar.Points[i].Color = Themes.ThemeManager.GetColorWinForms("JournalBarPlusColor");
                             else if (monthlyProfit[keyDate] < 0)
-                                profitMonthlyBar.Points[i].Color = Color.DarkRed;
+                                profitMonthlyBar.Points[i].Color = Themes.ThemeManager.GetColorWinForms("ChartBarMinusColor");
                         }
 
                         if (monthProfit > maxYValMonBars)
@@ -1703,9 +1770,9 @@ namespace OsEngine.Journal
                         if (i <= profitYearlyBar.Points.Count - 1)
                         {
                             if (yearlyProfit[year] > 0)
-                                profitYearlyBar.Points[i].Color = Color.Gainsboro;
+                                profitYearlyBar.Points[i].Color = Themes.ThemeManager.GetColorWinForms("JournalBarPlusColor");
                             else if (yearlyProfit[year] < 0)
-                                profitYearlyBar.Points[i].Color = Color.DarkRed;
+                                profitYearlyBar.Points[i].Color = Themes.ThemeManager.GetColorWinForms("ChartBarMinusColor");
                         }
 
                         if (yearProfit > maxYValYearBars)
@@ -1762,15 +1829,15 @@ namespace OsEngine.Journal
 
                     if (positionsAll[i].State != PositionStateType.Done)
                     {
-                        profitBar.Points[profitBar.Points.Count - 1].Color = Color.BlueViolet;
+                        profitBar.Points[profitBar.Points.Count - 1].Color = Themes.ThemeManager.GetColorWinForms("JournalBarZeroColor");
                     }
                     else if (curProfit > 0)
                     {
-                        profitBar.Points[profitBar.Points.Count - 1].Color = Color.Gainsboro;
+                        profitBar.Points[profitBar.Points.Count - 1].Color = Themes.ThemeManager.GetColorWinForms("JournalBarPlusColor");
                     }
                     else
                     {
-                        profitBar.Points[profitBar.Points.Count - 1].Color = Color.DarkRed;
+                        profitBar.Points[profitBar.Points.Count - 1].Color = Themes.ThemeManager.GetColorWinForms("ChartBarMinusColor");
                     }
                 }
 
@@ -1855,9 +1922,15 @@ namespace OsEngine.Journal
 
                     if (maxYVal != minYval)
                     {
-                        _chartEquity.ChartAreas[0].AxisY2.Maximum = Math.Round((double)maxYVal, 3);
-                        _chartEquity.ChartAreas[0].AxisY2.Minimum = Math.Round((double)minYval, 3);
-                        _chartEquity.ChartAreas[0].AxisY2.LabelStyle.Format = "F3";
+                        double axisMax = Math.Round((double)maxYVal, 3);
+                        double axisMin = Math.Round((double)minYval, 3);
+
+                        if (axisMax > axisMin)
+                        {
+                            _chartEquity.ChartAreas[0].AxisY2.Maximum = axisMax;
+                            _chartEquity.ChartAreas[0].AxisY2.Minimum = axisMin;
+                            _chartEquity.ChartAreas[0].AxisY2.LabelStyle.Format = "F3";
+                        }
                     }
                 }
 
@@ -1871,9 +1944,15 @@ namespace OsEngine.Journal
 
                     if (maxYValBars != minYvalBars)
                     {
-                        _chartEquity.ChartAreas[1].AxisY2.Maximum = Math.Round((double)maxYValBars, 3);
-                        _chartEquity.ChartAreas[1].AxisY2.Minimum = Math.Round((double)minYvalBars, 3);
-                        _chartEquity.ChartAreas[1].AxisY2.LabelStyle.Format = "F3";
+                        double axisMax = Math.Round((double)maxYValBars, 3);
+                        double axisMin = Math.Round((double)minYvalBars, 3);
+
+                        if (axisMax > axisMin)
+                        {
+                            _chartEquity.ChartAreas[1].AxisY2.Maximum = axisMax;
+                            _chartEquity.ChartAreas[1].AxisY2.Minimum = axisMin;
+                            _chartEquity.ChartAreas[1].AxisY2.LabelStyle.Format = "F3";
+                        }
                     }
                 }
 
@@ -1887,9 +1966,15 @@ namespace OsEngine.Journal
 
                     if (maxYValMonBars != minYValMonBars)
                     {
-                        _chartEquity.ChartAreas[2].AxisY2.Maximum = Math.Round((double)maxYValMonBars, 3);
-                        _chartEquity.ChartAreas[2].AxisY2.Minimum = Math.Round((double)minYValMonBars, 3);
-                        _chartEquity.ChartAreas[2].AxisY2.LabelStyle.Format = "F3";
+                        double axisMax = Math.Round((double)maxYValMonBars, 3);
+                        double axisMin = Math.Round((double)minYValMonBars, 3);
+
+                        if (axisMax > axisMin)
+                        {
+                            _chartEquity.ChartAreas[2].AxisY2.Maximum = axisMax;
+                            _chartEquity.ChartAreas[2].AxisY2.Minimum = axisMin;
+                            _chartEquity.ChartAreas[2].AxisY2.LabelStyle.Format = "F3";
+                        }
                     }
                 }
 
@@ -1903,9 +1988,15 @@ namespace OsEngine.Journal
 
                     if (maxYValYearBars != minYValYearBars)
                     {
-                        _chartEquity.ChartAreas[3].AxisY2.Maximum = Math.Round((double)maxYValYearBars, 3);
-                        _chartEquity.ChartAreas[3].AxisY2.Minimum = Math.Round((double)minYValYearBars, 3);
-                        _chartEquity.ChartAreas[3].AxisY2.LabelStyle.Format = "F3";
+                        double axisMax = Math.Round((double)maxYValYearBars, 3);
+                        double axisMin = Math.Round((double)minYValYearBars, 3);
+
+                        if (axisMax > axisMin)
+                        {
+                            _chartEquity.ChartAreas[3].AxisY2.Maximum = axisMax;
+                            _chartEquity.ChartAreas[3].AxisY2.Minimum = axisMin;
+                            _chartEquity.ChartAreas[3].AxisY2.LabelStyle.Format = "F3";
+                        }
                     }
                 }
 
@@ -2069,7 +2160,7 @@ namespace OsEngine.Journal
                 benchmark.Color = Color.Green;
                 benchmark.LabelForeColor = Color.Green;
                 benchmark.ChartArea = "ChartAreaProfit";
-                benchmark.ShadowOffset = 2;
+                benchmark.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                 benchmark.BorderWidth = 2;
 
                 decimal startValue = originalData[0];
@@ -2101,7 +2192,7 @@ namespace OsEngine.Journal
         {
             if (_visibleEquityLine)
             {
-                RectangleEquity.Fill = Brushes.White;
+                RectangleEquity.Fill = Themes.ThemeManager.GetBrush("JournalEquityTotalBrush");
             }
             else
             {
@@ -2110,20 +2201,20 @@ namespace OsEngine.Journal
 
             if (_visibleLongLine)
             {
-                RectangleLong.Fill = Brushes.DeepSkyBlue;
+                RectangleLong.Fill = Themes.ThemeManager.GetBrush("JournalSwatchLongBrush");
             }
             else
             {
-                RectangleLong.Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(255, 0, 112, 149));
+                RectangleLong.Fill = Brushes.Gray;
             }
 
             if (_visibleShortLine)
             {
-                RectangleShort.Fill = Brushes.DarkOrange;
+                RectangleShort.Fill = Themes.ThemeManager.GetBrush("JournalSwatchShortBrush");
             }
             else
             {
-                RectangleShort.Fill = new SolidColorBrush(System.Windows.Media.Color.FromArgb(255, 145, 80, 0));
+                RectangleShort.Fill = Brushes.Gray;
             }
         }
 
@@ -2228,7 +2319,7 @@ namespace OsEngine.Journal
                 HostVolume.Child = _chartVolume;
                 HostVolume.Child.Show();
 
-                _chartVolume.BackColor = Color.FromArgb(17, 18, 23);
+                _chartVolume.BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
                 _chartVolume.Click += _chartVolume_Click;
                 _chartVolume.MouseWheel += _chartVolume_MouseWheel;
             }
@@ -2463,11 +2554,11 @@ namespace OsEngine.Journal
                 {
                     if (i % 2 == 0)
                     {
-                        PaintValuesVolume(volumes[i].Volume, volumes[i].Security, Color.DeepSkyBlue, allChange);
+                        PaintValuesVolume(volumes[i].Volume, volumes[i].Security, Themes.ThemeManager.GetColorWinForms("ChartEquityColor"), allChange);
                     }
                     else
                     {
-                        PaintValuesVolume(volumes[i].Volume, volumes[i].Security, Color.DarkOrange, allChange);
+                        PaintValuesVolume(volumes[i].Volume, volumes[i].Security, Themes.ThemeManager.GetColorWinForms("JournalShortColor"), allChange);
                     }
                 }
 
@@ -2505,18 +2596,19 @@ namespace OsEngine.Journal
                 areaLineSecurity.CursorX.IsUserSelectionEnabled = true; //allow the user to change the view scope/ разрешаем пользователю изменять рамки представления
                 areaLineSecurity.CursorX.IsUserEnabled = true; //trait/чертa
 
-                areaLineSecurity.BorderColor = Color.Black;
-                areaLineSecurity.BackColor = Color.FromArgb(17, 18, 23);
-                areaLineSecurity.CursorY.LineColor = Color.Gainsboro;
-                areaLineSecurity.CursorX.LineColor = Color.Black;
-                areaLineSecurity.AxisX.TitleForeColor = Color.Gainsboro;
-                areaLineSecurity.AxisY.TitleForeColor = Color.Gainsboro;
+                areaLineSecurity.BorderColor = Themes.ThemeManager.GetColorWinForms("JournalChartBorderColor");
+                areaLineSecurity.BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
+                areaLineSecurity.CursorY.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                areaLineSecurity.CursorX.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartCursorXColor");
+                areaLineSecurity.AxisX.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                areaLineSecurity.AxisY.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
                 areaLineSecurity.AxisY2.IntervalAutoMode = IntervalAutoMode.FixedCount;
                 areaLineSecurity.AxisY2.Enabled = AxisEnabled.False;
 
                 foreach (var axe in areaLineSecurity.Axes)
                 {
-                    axe.LabelStyle.ForeColor = Color.Gainsboro;
+                    axe.LabelStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
                 }
 
                 _chartVolume.ChartAreas.Add(areaLineSecurity);
@@ -2527,7 +2619,7 @@ namespace OsEngine.Journal
                 volumeSeries.YAxisType = AxisType.Secondary;
                 volumeSeries.ChartArea = areaLineSecurity.Name;
                 volumeSeries.BorderWidth = 3;
-                volumeSeries.ShadowOffset = 2;
+                volumeSeries.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 decimal maxVolume = 0;
                 decimal minVolume = decimal.MaxValue;
@@ -2550,17 +2642,17 @@ namespace OsEngine.Journal
 
                 Series nameSeries = new Series("Name" + name);
                 nameSeries.ChartType = SeriesChartType.Point;
-                nameSeries.Color = Color.White;
+                nameSeries.Color = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 nameSeries.YAxisType = AxisType.Secondary;
                 nameSeries.ChartArea = areaLineSecurity.Name;
                 nameSeries.BorderWidth = 3;
-                nameSeries.ShadowOffset = 2;
+                nameSeries.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                 nameSeries.MarkerStyle = MarkerStyle.Square;
                 nameSeries.MarkerSize = 4;
 
                 nameSeries.Points.Add(Convert.ToDouble(maxVolume));
                 nameSeries.Points[0].Label = name;
-                nameSeries.Points[0].LabelForeColor = Color.White;
+                nameSeries.Points[0].LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
 
                 _chartVolume.Series.Add(nameSeries);
 
@@ -2630,7 +2722,7 @@ namespace OsEngine.Journal
 
                     _chartVolume.Series[i].Points[index].Label = label;
                     _chartVolume.Series[i].Points[index].LabelForeColor = _chartVolume.Series[i].Points[index].Color;
-                    _chartVolume.Series[i].Points[index].LabelBackColor = Color.FromArgb(17, 18, 23);
+                    _chartVolume.Series[i].Points[index].LabelBackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
                 }
             }
             catch (Exception error)
@@ -2703,7 +2795,7 @@ namespace OsEngine.Journal
                 _chartPortfolio = new Chart();
                 _chartPortfolio.Series.Clear();
                 _chartPortfolio.ChartAreas.Clear();
-                _chartPortfolio.BackColor = Color.FromArgb(17, 18, 23);
+                _chartPortfolio.BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
                 _chartPortfolio.Dock = DockStyle.Fill;
 
                 ChartArea areaLinePortfolio = new ChartArea("ChartAreaPortfolio");
@@ -2728,16 +2820,18 @@ namespace OsEngine.Journal
 
                 for (int i = 0; i < _chartPortfolio.ChartAreas.Count; i++)
                 {
-                    _chartPortfolio.ChartAreas[i].BorderColor = Color.Black;
-                    _chartPortfolio.ChartAreas[i].BackColor = Color.FromArgb(17, 18, 23);
-                    _chartPortfolio.ChartAreas[i].CursorY.LineColor = Color.Gainsboro;
-                    _chartPortfolio.ChartAreas[i].CursorX.LineColor = Color.Black;
-                    _chartPortfolio.ChartAreas[i].AxisX.TitleForeColor = Color.Gainsboro;
-                    _chartPortfolio.ChartAreas[i].AxisY.TitleForeColor = Color.Gainsboro;
+                    _chartPortfolio.ChartAreas[i].BorderColor = Themes.ThemeManager.GetColorWinForms("JournalChartBorderColor");
+                    _chartPortfolio.ChartAreas[i].BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
+                    _chartPortfolio.ChartAreas[i].CursorY.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartPortfolio.ChartAreas[i].CursorX.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartCursorXColor");
+                    _chartPortfolio.ChartAreas[i].AxisX.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartPortfolio.ChartAreas[i].AxisY.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
 
                     foreach (var axe in _chartPortfolio.ChartAreas[i].Axes)
                     {
-                        axe.LabelStyle.ForeColor = Color.Gainsboro;
+                        axe.LabelStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
+                        axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
                     }
                 }
 
@@ -2938,28 +3032,28 @@ namespace OsEngine.Journal
 
                 Series totalPortfolio = new Series("SeriesPortfolio");
                 totalPortfolio.ChartType = SeriesChartType.Line;
-                totalPortfolio.Color = Color.White;
-                totalPortfolio.LabelForeColor = Color.White;
+                totalPortfolio.Color = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
+                totalPortfolio.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 totalPortfolio.YAxisType = AxisType.Secondary;
                 totalPortfolio.ChartArea = "ChartAreaPortfolio";
                 totalPortfolio.BorderWidth = 4;
-                totalPortfolio.ShadowOffset = 2;
+                totalPortfolio.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series volumePortfolio = new Series("SeriesVolumeToPortfolio");
                 volumePortfolio.ChartType = SeriesChartType.Line;
-                volumePortfolio.Color = Color.DeepSkyBlue;
-                volumePortfolio.LabelForeColor = Color.DeepSkyBlue;
+                volumePortfolio.Color = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");
+                volumePortfolio.LabelForeColor = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");
                 volumePortfolio.YAxisType = AxisType.Secondary;
                 volumePortfolio.ChartArea = "ChartAreaPortfolio";
                 volumePortfolio.BorderWidth = 2;
-                volumePortfolio.ShadowOffset = 2;
+                volumePortfolio.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series leverageBars = new Series("SeriesLeverageBar");
                 leverageBars.ChartType = SeriesChartType.Column;
                 leverageBars.YAxisType = AxisType.Secondary;
-                leverageBars.LabelForeColor = Color.White;
+                leverageBars.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 leverageBars.ChartArea = "ChartAreaPortfolioBar";
-                leverageBars.ShadowOffset = 2;
+                leverageBars.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 List<DateTime> allChange = new List<DateTime>();
 
@@ -3010,6 +3104,12 @@ namespace OsEngine.Journal
                     {
                         decimal volumeInPos = pos.MaxVolume * pos.EntryPrice;
 
+                        // для фьючерсов цена в пунктах — пересчитываем объём в валюту
+                        if (pos.PriceStep != 0 && pos.PriceStepCost != 0)
+                        {
+                            volumeInPos = (volumeInPos / pos.PriceStep) * pos.PriceStepCost;
+                        }
+
                         if (pos.Direction == Side.Buy && pos.MarginBuy != 0)
                         {
                             volumeInPos = pos.MaxVolume * pos.MarginBuy;
@@ -3033,6 +3133,12 @@ namespace OsEngine.Journal
                         && indexClose != -1)
                     {
                         decimal volumeInPos = pos.MaxVolume * pos.EntryPrice;
+
+                        // для фьючерсов цена в пунктах — пересчитываем объём в валюту
+                        if (pos.PriceStep != 0 && pos.PriceStepCost != 0)
+                        {
+                            volumeInPos = (volumeInPos / pos.PriceStep) * pos.PriceStepCost;
+                        }
 
                         if (pos.Direction == Side.Buy && pos.MarginBuy != 0)
                         {
@@ -3293,7 +3399,7 @@ namespace OsEngine.Journal
 
                 _chartDd.Series.Clear();
                 _chartDd.ChartAreas.Clear();
-                _chartDd.BackColor = Color.FromArgb(17, 18, 23);
+                _chartDd.BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
 
                 ChartArea areaDdPunct = new ChartArea("ChartAreaDdPunct");
                 areaDdPunct.Position.Height = 50;
@@ -3302,7 +3408,7 @@ namespace OsEngine.Journal
                 areaDdPunct.CursorX.IsUserSelectionEnabled = false; //allow the user to change the view scope/ разрешаем пользователю изменять рамки представления
                 areaDdPunct.CursorX.IsUserEnabled = true; //trait/чертa
                 areaDdPunct.AxisY2.Title = OsLocalization.Journal.Label25;
-                areaDdPunct.AxisY2.TitleForeColor = Color.DeepSkyBlue;
+                areaDdPunct.AxisY2.TitleForeColor = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");
 
                 _chartDd.ChartAreas.Add(areaDdPunct);
 
@@ -3314,22 +3420,24 @@ namespace OsEngine.Journal
                 areaDdPercent.AxisX.Enabled = AxisEnabled.False;
                 areaDdPercent.CursorX.IsUserEnabled = true; //trait/чертa
                 areaDdPercent.AxisY2.Title = OsLocalization.Journal.Label24;
-                areaDdPercent.AxisY2.TitleForeColor = Color.DarkOrange;
+                areaDdPercent.AxisY2.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
 
                 _chartDd.ChartAreas.Add(areaDdPercent);
 
                 for (int i = 0; i < _chartDd.ChartAreas.Count; i++)
                 {
-                    _chartDd.ChartAreas[i].BorderColor = Color.Black;
-                    _chartDd.ChartAreas[i].BackColor = Color.FromArgb(17, 18, 23);
-                    _chartDd.ChartAreas[i].CursorY.LineColor = Color.Gainsboro;
-                    _chartDd.ChartAreas[i].CursorX.LineColor = Color.Black;
-                    _chartDd.ChartAreas[i].AxisX.TitleForeColor = Color.Gainsboro;
-                    _chartDd.ChartAreas[i].AxisY.TitleForeColor = Color.Gainsboro;
+                    _chartDd.ChartAreas[i].BorderColor = Themes.ThemeManager.GetColorWinForms("JournalChartBorderColor");
+                    _chartDd.ChartAreas[i].BackColor = Themes.ThemeManager.GetColorWinForms("JournalChartBackColor");
+                    _chartDd.ChartAreas[i].CursorY.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartDd.ChartAreas[i].CursorX.LineColor = Themes.ThemeManager.GetColorWinForms("JournalChartCursorXColor");
+                    _chartDd.ChartAreas[i].AxisX.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    _chartDd.ChartAreas[i].AxisY.TitleForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
 
                     foreach (var axe in _chartDd.ChartAreas[i].Axes)
                     {
-                        axe.LabelStyle.ForeColor = Color.Gainsboro;
+                        axe.LabelStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("JournalChartTextColor");
+                    axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
+                        axe.LabelStyle.Font = Themes.ThemeManager.GetChartAxisFont();
                     }
                 }
 
@@ -3467,17 +3575,17 @@ namespace OsEngine.Journal
 
                 Series drowDownPunct = new Series("SeriesDdPunct");
                 drowDownPunct.ChartType = SeriesChartType.Line;
-                drowDownPunct.Color = Color.DeepSkyBlue;
-                drowDownPunct.LabelForeColor = Color.White;
+                drowDownPunct.Color = Themes.ThemeManager.GetColorWinForms("ChartEquityColor");
+                drowDownPunct.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 drowDownPunct.YAxisType = AxisType.Secondary;
                 drowDownPunct.ChartArea = "ChartAreaDdPunct";
                 drowDownPunct.BorderWidth = 2;
-                drowDownPunct.ShadowOffset = 2;
+                drowDownPunct.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
 
                 Series nullLine = new Series("SeriesNullLine");
                 nullLine.ChartType = SeriesChartType.Line;
                 nullLine.YAxisType = AxisType.Secondary;
-                nullLine.LabelForeColor = Color.White;
+                nullLine.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 nullLine.ChartArea = "ChartAreaDdPunct";
                 nullLine.ShadowOffset = 0;
 
@@ -3512,10 +3620,16 @@ namespace OsEngine.Journal
                 if (minOnY != decimal.MaxValue &&
                     minOnY != 0)
                 {
-                    _chartDd.ChartAreas[0].AxisY2.IntervalType = DateTimeIntervalType.Number;
-                    _chartDd.ChartAreas[0].AxisY2.IntervalOffsetType = DateTimeIntervalType.Number;
-                    _chartDd.ChartAreas[0].AxisY2.Maximum = Math.Round(-Convert.ToDouble(minOnY) * 0.05, 6);
-                    _chartDd.ChartAreas[0].AxisY2.Minimum = Math.Round(Convert.ToDouble(minOnY) + Convert.ToDouble(minOnY) * 0.05, 6);
+                    double axisMax = Math.Round(-Convert.ToDouble(minOnY) * 0.05, 6);
+                    double axisMin = Math.Round(Convert.ToDouble(minOnY) + Convert.ToDouble(minOnY) * 0.05, 6);
+
+                    if (axisMax > axisMin)
+                    {
+                        _chartDd.ChartAreas[0].AxisY2.IntervalType = DateTimeIntervalType.Number;
+                        _chartDd.ChartAreas[0].AxisY2.IntervalOffsetType = DateTimeIntervalType.Number;
+                        _chartDd.ChartAreas[0].AxisY2.Maximum = axisMax;
+                        _chartDd.ChartAreas[0].AxisY2.Minimum = axisMin;
+                    }
                 }
 
                 // dd in %
@@ -3570,12 +3684,12 @@ namespace OsEngine.Journal
 
                 Series drowDownPercent = new Series("SeriesDdPercent");
                 drowDownPercent.ChartType = SeriesChartType.Line;
-                drowDownPercent.Color = Color.DarkOrange;
-                drowDownPercent.LabelForeColor = Color.White;
+                drowDownPercent.Color = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
+                drowDownPercent.LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 drowDownPercent.YAxisType = AxisType.Secondary;
                 drowDownPercent.ChartArea = "ChartAreaDdPercent";
                 drowDownPercent.BorderWidth = 2;
-                drowDownPercent.ShadowOffset = 2;
+                drowDownPercent.ShadowOffset = Themes.ThemeManager.GetChartSeriesShadow();
                 drowDownPercent.XAxisType = AxisType.Primary;
 
                 for (int i = 0; i < ddPepcent.Count; i++)
@@ -3601,10 +3715,16 @@ namespace OsEngine.Journal
                 if (minOnY2 != decimal.MaxValue &&
                     minOnY2 != 0)
                 {
-                    _chartDd.ChartAreas[1].AxisY2.IntervalType = DateTimeIntervalType.Number;
-                    _chartDd.ChartAreas[1].AxisY2.IntervalOffsetType = DateTimeIntervalType.Number;
-                    _chartDd.ChartAreas[1].AxisY2.Maximum = Math.Round(-Convert.ToDouble(minOnY2) * 0.05, 6);
-                    _chartDd.ChartAreas[1].AxisY2.Minimum = Math.Round(Convert.ToDouble(minOnY2) + Convert.ToDouble(minOnY2) * 0.05, 6);
+                    double axisMax = Math.Round(-Convert.ToDouble(minOnY2) * 0.05, 6);
+                    double axisMin = Math.Round(Convert.ToDouble(minOnY2) + Convert.ToDouble(minOnY2) * 0.05, 6);
+
+                    if (axisMax > axisMin)
+                    {
+                        _chartDd.ChartAreas[1].AxisY2.IntervalType = DateTimeIntervalType.Number;
+                        _chartDd.ChartAreas[1].AxisY2.IntervalOffsetType = DateTimeIntervalType.Number;
+                        _chartDd.ChartAreas[1].AxisY2.Maximum = axisMax;
+                        _chartDd.ChartAreas[1].AxisY2.Minimum = axisMin;
+                    }
                 }
             }
             catch (Exception ex)
@@ -3854,11 +3974,11 @@ namespace OsEngine.Journal
 
                 if (position.ProfitPortfolioAbs > 0)
                 {
-                    nRow.DefaultCellStyle.ForeColor = Color.FromArgb(57, 157, 54);
+                    nRow.DefaultCellStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("MarketDepthBidColor");
                 }
                 else if (position.ProfitPortfolioAbs <= 0)
                 {
-                    nRow.DefaultCellStyle.ForeColor = Color.FromArgb(254, 84, 0);
+                    nRow.DefaultCellStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("MarketDepthAskColor");
                 }
 
                 nRow.Cells.Add(new DataGridViewTextBoxCell());
@@ -3888,13 +4008,13 @@ namespace OsEngine.Journal
 
                 if (position.Direction == Side.Buy)
                 {
-                    nRow.Cells[5].Style.ForeColor = Color.DodgerBlue;
+                    nRow.Cells[5].Style.ForeColor = Themes.ThemeManager.GetColorWinForms("JournalDodgerBlueColor");
                     //nRow.Cells[5].Style.SelectionBackColor = Color.DodgerBlue;
                 }
                 else
                 {
-                    nRow.Cells[5].Style.ForeColor = Color.DarkRed;
-                    //nRow.Cells[5].Style.SelectionBackColor = Color.DarkOrange;
+                    nRow.Cells[5].Style.ForeColor = Themes.ThemeManager.GetColorWinForms("ChartBarMinusColor");
+                    //nRow.Cells[5].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("JournalShortColor");
                 }
 
                 int decimalsPrice = position.PriceStep.ToStringWithNoEndZero().DecimalsCount();
@@ -5393,6 +5513,12 @@ namespace OsEngine.Journal
                     _leftPanelIsHide = Convert.ToBoolean(reader.ReadLine());
                     string profitType = reader.ReadLine();
 
+                    if (_startProgram == StartProgram.IsOsTrader
+                        && profitType == "Deposit percent")
+                    {
+                        profitType = "Absolute";
+                    }
+
                     if (string.IsNullOrEmpty(profitType) == false)
                     {
                         ComboBoxChartType.SelectedItem = profitType;
@@ -6122,6 +6248,11 @@ namespace OsEngine.Journal
         {
             try
             {
+                if(e.RowIndex == -1)
+                {
+                    return;
+                }
+
                 if (e.ColumnIndex == 2)
                 {
                     _lastSecuritiesEvent = e;

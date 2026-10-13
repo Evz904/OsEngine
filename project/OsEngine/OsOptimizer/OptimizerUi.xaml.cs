@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -40,6 +40,7 @@ namespace OsEngine.OsOptimizer
             InitializeComponent();
             _currentCulture = OsLocalization.CurCulture;
             OsEngine.Layout.StickyBorders.Listen(this);
+            OsEngine.Layout.StartupLocation.Start_FitHeightToWorkArea(this);
             Thread.Sleep(200);
 
             _master = new OptimizerMaster();
@@ -78,6 +79,10 @@ namespace OsEngine.OsOptimizer
             CommissionValueLabel.Content = OsLocalization.Optimizer.Label41;
             CommissionValueTextBox.Text = _master.CommissionValue.ToString();
             CommissionValueTextBox.TextChanged += CommissionValueTextBoxOnTextChanged;
+
+            _master.TradeSettingsChangedEvent += _master_TradeSettingsChangedEvent;
+            _master.PhasesChangedEvent += _master_PhasesChangedEvent;
+            _master.ParametersChangedEvent += _master_ParametersChangedEvent;
 
             CheckBoxCacheIndicatorsIsOn.Content = OsLocalization.Optimizer.Label73;
             CheckBoxCacheIndicatorsIsOn.IsChecked = _master.CacheIndicatorsIsOn;
@@ -131,6 +136,7 @@ namespace OsEngine.OsOptimizer
             TextBoxIterationCount.TextChanged += TextBoxIterationCount_TextChanged;
 
             _master.NeedToMoveUiToEvent += _master_NeedToMoveUiToEvent;
+            _master.StrategyChangedEvent += _master_StrategyChangedEvent;
             TextBoxStrategyName.Text = _master.StrategyName;
 
             Thread worker = new Thread(PainterProgressArea);
@@ -227,12 +233,20 @@ namespace OsEngine.OsOptimizer
 
                 _isClosed = true;
 
+                OptimizerMaster.Master = null;
+
+                _master.StrategyChangedEvent -= _master_StrategyChangedEvent;
+
                 ComboBoxThreadsCount.SelectionChanged -= ComboBoxThreadsCount_SelectionChanged;
 
                 TextBoxStartPortfolio.TextChanged -= TextBoxStartPortfolio_TextChanged;
                 CommissionTypeComboBox.SelectionChanged -= CommissionTypeComboBoxOnSelectionChanged;
 
                 CommissionValueTextBox.TextChanged -= CommissionValueTextBoxOnTextChanged;
+
+                _master.TradeSettingsChangedEvent -= _master_TradeSettingsChangedEvent;
+                _master.PhasesChangedEvent -= _master_PhasesChangedEvent;
+                _master.ParametersChangedEvent -= _master_ParametersChangedEvent;
 
                 CheckBoxFilterProfitIsOn.Click -= CheckBoxFilterIsOn_Click;
                 CheckBoxFilterMaxDrowDownIsOn.Click -= CheckBoxFilterIsOn_Click;
@@ -472,6 +486,11 @@ namespace OsEngine.OsOptimizer
 
         private OptimizerMaster _master;
 
+        public OptimizerMaster Master
+        {
+            get { return _master; }
+        }
+
         private bool _isClosed;
 
         private void StopUserActivity()
@@ -532,6 +551,14 @@ namespace OsEngine.OsOptimizer
 
         private void _master_TestReadyEvent(List<OptimizerFazeReport> reports)
         {
+            // событие приходит из рабочего потока исполнителя —
+            // создание окон возможно только на UI-потоке
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(() => _master_TestReadyEvent(reports));
+                return;
+            }
+
             lock (_testEndEventLocker)
             {
                 if (_lastTestEndEventTime.AddSeconds(3) > DateTime.Now)
@@ -693,7 +720,14 @@ namespace OsEngine.OsOptimizer
 
         private void ComboBoxThreadsCount_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            CreateThreadsProgressBars();
+            try
+            {
+                CreateThreadsProgressBars();
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private List<ProgressBar> _progressBars;
@@ -762,16 +796,27 @@ namespace OsEngine.OsOptimizer
 
                 if (_testIsEnd)
                 {
-                    ProgressBarPrime.Maximum = 100;
-                    ProgressBarPrime.Value = 100;
+                    // запуск мог произойти через MCP API, минуя кнопку "Погнали!",
+                    // и тогда флаг никто не сбросил — живой прогон важнее флага
+                    bool isRunning = _master != null
+                        && _master._optimizerExecutor != null
+                        && _master._optimizerExecutor.IsRunning;
 
-                    for (int i2 = 0; i2 > -1 && i2 < _progressBars.Count; i2++)
+                    if (isRunning == false)
                     {
-                        _progressBars[i2].Maximum = 100;
-                        _progressBars[i2].Value = 100;
+                        ProgressBarPrime.Maximum = 100;
+                        ProgressBarPrime.Value = 100;
+
+                        for (int i2 = 0; i2 > -1 && i2 < _progressBars.Count; i2++)
+                        {
+                            _progressBars[i2].Maximum = 100;
+                            _progressBars[i2].Value = 100;
+                        }
+
+                        return;
                     }
 
-                    return;
+                    _testIsEnd = false;
                 }
 
                 if (_master == null)
@@ -846,91 +891,119 @@ namespace OsEngine.OsOptimizer
 
         private void ButtonPositionSupport_Click(object sender, RoutedEventArgs e)
         {
-            _master.ShowManualControlDialog();
+            try
+            {
+                _master.ShowManualControlDialog();
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private void ButtonGo_Click(object sender, RoutedEventArgs e)
         {
-            AindicatorCacheServer.Clear();
-
-            SaveParametersFromTable();
-
-            if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label9 &&
-                 _reports != null)
+            try
             {
-                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label33);
+                AindicatorCacheServer.Clear();
 
-                ui.ShowDialog();
+                SaveParametersFromTable();
 
-                if (!ui.UserAcceptAction)
+                if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label9 &&
+                     _reports != null)
                 {
-                    return;
-                }
-            }
+                    AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label33);
 
-            _testIsEnd = false;
+                    ui.ShowDialog();
 
-            int botsCount = _master.GetMaxBotsCount();
-
-            if (botsCount > 100000)
-            {
-                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label60);
-
-                ui.ShowDialog();
-
-                if (!ui.UserAcceptAction)
-                {
-                    return;
-                }
-            }
-
-            if (_master.Fazes != null &&
-                _master.Fazes.Count > 1 &&
-                (_master.FilterDealsCountIsOn
-                || _master.FilterMaxDrawDownIsOn
-                || _master.FilterMiddleProfitIsOn
-                || _master.FilterProfitFactorIsOn
-                || _master.FilterProfitIsOn))
-            {
-                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label61);
-
-                ui.ShowDialog();
-
-                if (!ui.UserAcceptAction)
-                {
-                    return;
-                }
-            }
-
-            if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label9
-                && _master.Start())
-            {
-                ButtonGo.Content = OsLocalization.Optimizer.Label32;
-                StopUserActivity();
-
-                ProgressBarPrime.Value = 0;
-
-                if (_progressBars != null && _progressBars.Count > 0)
-                {
-                    for (int i2 = 0; i2 < _progressBars.Count; i2++)
+                    if (!ui.UserAcceptAction)
                     {
-                        _progressBars[i2].Value = 0;
+                        return;
                     }
                 }
-            }
-            else if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label32)
-            {
-                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label51);
 
-                ui.ShowDialog();
+                _testIsEnd = false;
 
-                if (!ui.UserAcceptAction)
+                int botsCount = _master.GetMaxBotsCount();
+
+                if (botsCount > 100000)
                 {
-                    return;
+                    AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label60);
+
+                    ui.ShowDialog();
+
+                    if (!ui.UserAcceptAction)
+                    {
+                        return;
+                    }
                 }
 
-                _master.Stop();
-                ButtonGo.Content = OsLocalization.Optimizer.Label9;
+                if (_master.Fazes != null &&
+                    _master.Fazes.Count > 1 &&
+                    (_master.FilterDealsCountIsOn
+                    || _master.FilterMaxDrawDownIsOn
+                    || _master.FilterMiddleProfitIsOn
+                    || _master.FilterProfitFactorIsOn
+                    || _master.FilterProfitIsOn))
+                {
+                    AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label61);
+
+                    ui.ShowDialog();
+
+                    if (!ui.UserAcceptAction)
+                    {
+                        return;
+                    }
+                }
+
+                bool started = false;
+
+                if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label9)
+                {
+                    try
+                    {
+                        started = _master.Start();
+                    }
+                    catch (Exception ex)
+                    {
+                        _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+                        return;
+                    }
+                }
+
+                if (started)
+                {
+                    ButtonGo.Content = OsLocalization.Optimizer.Label32;
+                    StopUserActivity();
+
+                    ProgressBarPrime.Value = 0;
+
+                    if (_progressBars != null && _progressBars.Count > 0)
+                    {
+                        for (int i2 = 0; i2 < _progressBars.Count; i2++)
+                        {
+                            _progressBars[i2].Value = 0;
+                        }
+                    }
+                }
+                else if (ButtonGo.Content.ToString() == OsLocalization.Optimizer.Label32)
+                {
+                    AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Optimizer.Label51);
+
+                    ui.ShowDialog();
+
+                    if (!ui.UserAcceptAction)
+                    {
+                        return;
+                    }
+
+                    _master.Stop();
+                    ButtonGo.Content = OsLocalization.Optimizer.Label9;
+                }
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
             }
         }
 
@@ -967,18 +1040,56 @@ namespace OsEngine.OsOptimizer
 
         private void DatePickerEnd_SelectedDateChanged(object sender, SelectionChangedEventArgs e)
         {
-            _lastUpdateTimePicker = DateTime.Now;
-            _master.TimeEnd = DatePickerEnd.SelectedDate.Value;
+            try
+            {
+                _lastUpdateTimePicker = DateTime.Now;
+
+                if (DatePickerEnd.SelectedDate == null)
+                {
+                    DatePickerEnd.SelectedDate = _master.TimeEnd;
+                    return;
+                }
+
+                _master.TimeEnd = DatePickerEnd.SelectedDate.Value;
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private void DatePickerStart_SelectedDateChanged(object sender, SelectionChangedEventArgs e)
         {
-            _lastUpdateTimePicker = DateTime.Now;
-            _master.TimeStart = DatePickerStart.SelectedDate.Value;
+            try
+            {
+                _lastUpdateTimePicker = DateTime.Now;
+
+                if (DatePickerStart.SelectedDate == null)
+                {
+                    DatePickerStart.SelectedDate = _master.TimeStart;
+                    return;
+                }
+
+                _master.TimeStart = DatePickerStart.SelectedDate.Value;
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
+
+        private bool _filterTextUpdating;
 
         private void TextBoxFilterValue_TextChanged(object sender, TextChangedEventArgs e)
         {
+            // во время программной синхронизации текстбоксов (событие мастера)
+            // обратную запись в мастер не выполняем — иначе устаревшие значения
+            // из текстбоксов затирают свежие
+            if (_filterTextUpdating)
+            {
+                return;
+            }
+
             try
             {
                 _master.FilterProfitValue = Convert.ToDecimal(TextBoxFilterProfitValue.Text);
@@ -999,54 +1110,68 @@ namespace OsEngine.OsOptimizer
 
         private void CheckBoxFilterIsOn_Click(object sender, RoutedEventArgs e)
         {
-            _master.FilterProfitIsOn = CheckBoxFilterProfitIsOn.IsChecked.Value;
-            _master.FilterMaxDrawDownIsOn = CheckBoxFilterMaxDrowDownIsOn.IsChecked.Value;
-            _master.FilterMiddleProfitIsOn = CheckBoxFilterMiddleProfitIsOn.IsChecked.Value;
-            _master.FilterProfitFactorIsOn = CheckBoxFilterProfitFactorIsOn.IsChecked.Value;
-            _master.FilterDealsCountIsOn = CheckBoxFilterDealsCount.IsChecked.Value;
+            try
+            {
+                _master.FilterProfitIsOn = CheckBoxFilterProfitIsOn.IsChecked.Value;
+                _master.FilterMaxDrawDownIsOn = CheckBoxFilterMaxDrowDownIsOn.IsChecked.Value;
+                _master.FilterMiddleProfitIsOn = CheckBoxFilterMiddleProfitIsOn.IsChecked.Value;
+                _master.FilterProfitFactorIsOn = CheckBoxFilterProfitFactorIsOn.IsChecked.Value;
+                _master.FilterDealsCountIsOn = CheckBoxFilterDealsCount.IsChecked.Value;
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private void ButtonStrategySelect_Click(object sender, RoutedEventArgs e)
         {
-            List<string> namesForOptimization = BotFactory.GetNamesStrategyWithParametersSync();
-
-            List<string> scriptsNames = BotFactory.GetScriptsNamesStrategy();
-
-            List<string> includeNames = BotFactory.GetIncludeNamesStrategy();
-
-            for (int i = 0; i < scriptsNames.Count; i++)
+            try
             {
-                if (namesForOptimization.Find(s => s == scriptsNames[i]) == null)
+                List<string> namesForOptimization = BotFactory.GetNamesStrategyWithParametersSync();
+
+                List<string> scriptsNames = BotFactory.GetScriptsNamesStrategy();
+
+                List<string> includeNames = BotFactory.GetIncludeNamesStrategy();
+
+                for (int i = 0; i < scriptsNames.Count; i++)
                 {
-                    scriptsNames.RemoveAt(i);
-                    i--;
+                    if (namesForOptimization.Find(s => s == scriptsNames[i]) == null)
+                    {
+                        scriptsNames.RemoveAt(i);
+                        i--;
+                    }
                 }
-            }
 
-            for (int i = 0; i < includeNames.Count; i++)
-            {
-                if (namesForOptimization.Find(s => s == includeNames[i]) == null)
+                for (int i = 0; i < includeNames.Count; i++)
                 {
-                    includeNames.RemoveAt(i);
-                    i--;
+                    if (namesForOptimization.Find(s => s == includeNames[i]) == null)
+                    {
+                        includeNames.RemoveAt(i);
+                        i--;
+                    }
                 }
+
+                BotCreateUi2 ui = new BotCreateUi2(includeNames, scriptsNames,
+                    StartProgram.IsOsOptimizer, null);
+
+                ui.ShowDialog();
+
+                if (ui.IsAccepted == false)
+                {
+                    return;
+                }
+
+                _master.StrategyName = ui.NameStrategy;
+                _master.IsScript = ui.IsScript;
+                _master.CreateBot();
+                TextBoxStrategyName.Text = ui.NameStrategy;
+                ReloadStrategy();
             }
-
-            BotCreateUi2 ui = new BotCreateUi2(includeNames, scriptsNames,
-                StartProgram.IsOsOptimizer, null);
-
-            ui.ShowDialog();
-
-            if (ui.IsAccepted == false)
+            catch (Exception ex)
             {
-                return;
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
             }
-
-            _master.StrategyName = ui.NameStrategy;
-            _master.IsScript = ui.IsScript;
-            _master.CreateBot();
-            TextBoxStrategyName.Text = ui.NameStrategy;
-            ReloadStrategy();
         }
 
         private void ReloadStrategy()
@@ -1056,6 +1181,103 @@ namespace OsEngine.OsOptimizer
             PaintTableSources();
             PaintTableParameters();
             PaintCountBotsInOptimization();
+        }
+
+        private void _master_StrategyChangedEvent()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(_master_StrategyChangedEvent);
+                return;
+            }
+
+            try
+            {
+                TextBoxStrategyName.Text = _master.StrategyName;
+                ReloadStrategy();
+            }
+            catch (Exception error)
+            {
+                _master.SendLogMessage(error.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void _master_TradeSettingsChangedEvent()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(_master_TradeSettingsChangedEvent);
+                return;
+            }
+
+            try
+            {
+                TextBoxStartPortfolio.Text = _master.StartDeposit.ToString();
+                CommissionTypeComboBox.SelectedItem = _master.CommissionType.ToString();
+                CommissionValueTextBox.Text = _master.CommissionValue.ToString();
+                ComboBoxThreadsCount.SelectedItem = _master.ThreadsCount.ToString();
+            }
+            catch (Exception error)
+            {
+                _master.SendLogMessage(error.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void _master_PhasesChangedEvent()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(_master_PhasesChangedEvent);
+                return;
+            }
+
+            try
+            {
+                _filterTextUpdating = true;
+
+                CheckBoxFilterProfitIsOn.IsChecked = _master.FilterProfitIsOn;
+                CheckBoxFilterMaxDrowDownIsOn.IsChecked = _master.FilterMaxDrawDownIsOn;
+                CheckBoxFilterMiddleProfitIsOn.IsChecked = _master.FilterMiddleProfitIsOn;
+                CheckBoxFilterProfitFactorIsOn.IsChecked = _master.FilterProfitFactorIsOn;
+                CheckBoxFilterDealsCount.IsChecked = _master.FilterDealsCountIsOn;
+
+                TextBoxFilterProfitValue.Text = _master.FilterProfitValue.ToString();
+                TextBoxMaxDrowDownValue.Text = _master.FilterMaxDrawDownValue.ToString();
+                TextBoxFilterMiddleProfitValue.Text = _master.FilterMiddleProfitValue.ToString();
+                TextBoxFilterProfitFactorValue.Text = _master.FilterProfitFactorValue.ToString();
+                TextBoxFilterDealsCount.Text = _master.FilterDealsCountValue.ToString();
+
+                TextBoxPercentFiltration.Text = _master.PercentOnFiltration.ToString();
+                TextBoxIterationCount.Text = _master.IterationCount.ToString();
+
+                WalkForwardPeriodsPainter.PaintForwards(HostWalkForwardPeriods, _master.Fazes);
+            }
+            catch (Exception error)
+            {
+                _master.SendLogMessage(error.ToString(), Logging.LogMessageType.Error);
+            }
+            finally
+            {
+                _filterTextUpdating = false;
+            }
+        }
+
+        private void _master_ParametersChangedEvent()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.Invoke(_master_ParametersChangedEvent);
+                return;
+            }
+
+            try
+            {
+                ReloadStrategy();
+            }
+            catch (Exception error)
+            {
+                _master.SendLogMessage(error.ToString(), Logging.LogMessageType.Error);
+            }
         }
 
         private void TextBoxStartPortfolio_TextChanged(object sender, TextChangedEventArgs e)
@@ -1354,7 +1576,8 @@ namespace OsEngine.OsOptimizer
 
             List<SecurityTester> securities = _master.SecurityTester;
 
-            if (securities == null)
+            if (securities == null
+                || securities.Count == 0)
             {
                 return null;
             }
@@ -1412,13 +1635,9 @@ namespace OsEngine.OsOptimizer
             {
                 cell.Value = securityInSource;
             }
-            else
-            {
-                if (string.IsNullOrEmpty(securityInSource) == false)
-                {
-                    source.Connector.SecurityName = "";
-                }
-            }
+
+            // если бумаги нет в списке (сет ещё грузится или её нет в сете) — коннектор не трогаем,
+            // следующая отрисовка после полной загрузки привяжет значение сама
 
             row.Cells.Add(cell);
 
@@ -1451,10 +1670,8 @@ namespace OsEngine.OsOptimizer
                 {
                     cell2.Value = timeFrameInSource;
                 }
-                else
-                {
-                    source.Connector.TimeFrame = TimeFrame.Sec1;
-                }
+
+                // таймфрейма нет в списке — коннектор не трогаем, это отрисовка, а не редактирование
             }
             else
             {
@@ -1550,47 +1767,54 @@ namespace OsEngine.OsOptimizer
 
         private void _grid_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
-            // здесь только работа с BotTabIndex!!! Имя + Таймфрейм
-
-            int rowIndex = e.RowIndex;
-            int columnIndex = e.ColumnIndex;
-
-            if (columnIndex != 2 &&
-                columnIndex != 3)
+            try
             {
-                return;
-            }
+                // здесь только работа с BotTabIndex!!! Имя + Таймфрейм
 
-            BotPanel bot = _master.BotToTest;
+                int rowIndex = e.RowIndex;
+                int columnIndex = e.ColumnIndex;
 
-            List<IIBotTab> sources = bot.GetTabs();
-
-            if (rowIndex >= sources.Count)
-            {
-                return;
-            }
-
-            IIBotTab curTab = sources[rowIndex];
-
-            if (curTab.TabType != BotTabType.Simple)
-            {
-                return;
-            }
-
-            BotTabSimple simpleTab = (BotTabSimple)curTab;
-
-            if (columnIndex == 2)
-            {
-                simpleTab.Connector.SecurityName = _gridSources.Rows[rowIndex].Cells[2].Value.ToString();
-            }
-            else if (columnIndex == 3)
-            {
-                TimeFrame newFrame = new TimeFrame();
-
-                if (Enum.TryParse(_gridSources.Rows[rowIndex].Cells[3].Value.ToString(), out newFrame))
+                if (columnIndex != 2 &&
+                    columnIndex != 3)
                 {
-                    simpleTab.Connector.TimeFrame = newFrame;
+                    return;
                 }
+
+                BotPanel bot = _master.BotToTest;
+
+                List<IIBotTab> sources = bot.GetTabs();
+
+                if (rowIndex >= sources.Count)
+                {
+                    return;
+                }
+
+                IIBotTab curTab = sources[rowIndex];
+
+                if (curTab.TabType != BotTabType.Simple)
+                {
+                    return;
+                }
+
+                BotTabSimple simpleTab = (BotTabSimple)curTab;
+
+                if (columnIndex == 2)
+                {
+                    simpleTab.Connector.SecurityName = _gridSources.Rows[rowIndex].Cells[2].Value.ToString();
+                }
+                else if (columnIndex == 3)
+                {
+                    TimeFrame newFrame = new TimeFrame();
+
+                    if (Enum.TryParse(_gridSources.Rows[rowIndex].Cells[3].Value.ToString(), out newFrame))
+                    {
+                        simpleTab.Connector.TimeFrame = newFrame;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
             }
         }
 
@@ -1602,6 +1826,11 @@ namespace OsEngine.OsOptimizer
                 int columnIndex = e.ColumnIndex;
 
                 if (columnIndex != 4)
+                {
+                    return;
+                }
+
+                if(rowIndex < 0)
                 {
                     return;
                 }
@@ -1676,18 +1905,25 @@ namespace OsEngine.OsOptimizer
 
         private void ButtonCreateOptimizeFazes_Click(object sender, RoutedEventArgs e)
         {
-            _master.ReloadFazes();
-            PaintTableOptimizeFazes();
-
-            if (_master.Fazes == null ||
-                _master.Fazes.Count == 0)
+            try
             {
-                return;
+                _master.ReloadFazes();
+                PaintTableOptimizeFazes();
+
+                if (_master.Fazes == null ||
+                    _master.Fazes.Count == 0)
+                {
+                    return;
+                }
+
+                WalkForwardPeriodsPainter.PaintForwards(HostWalkForwardPeriods, _master.Fazes);
+
+                PaintCountBotsInOptimization();
             }
-
-            WalkForwardPeriodsPainter.PaintForwards(HostWalkForwardPeriods, _master.Fazes);
-
-            PaintCountBotsInOptimization();
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private DataGridView _gridFazes;
@@ -1749,6 +1985,11 @@ namespace OsEngine.OsOptimizer
         {
             // 2 - Start 3 - End
 
+            if (_master == null || _master.Fazes == null)
+            {
+                return;
+            }
+
             int indexColumn = e.ColumnIndex;
 
             if (indexColumn != 2 && indexColumn != 3)
@@ -1757,6 +1998,11 @@ namespace OsEngine.OsOptimizer
             }
 
             int indexRow = e.RowIndex;
+
+            if (indexRow < 0 || indexRow >= _master.Fazes.Count)
+            {
+                return;
+            }
 
             try
             {
@@ -1784,11 +2030,45 @@ namespace OsEngine.OsOptimizer
                 }
             }
 
-            PaintTableOptimizeFazes();
+            SchedulePaintTableOptimizeFazes();
 
             if (_master.Fazes.Count != 0)
             {
                 WalkForwardPeriodsPainter.PaintForwards(HostWalkForwardPeriods, _master.Fazes);
+            }
+        }
+
+        private bool _fazesRepaintScheduled;
+
+        private void SchedulePaintTableOptimizeFazes()
+        {
+            if (_gridFazes == null || !_gridFazes.IsHandleCreated || _fazesRepaintScheduled)
+            {
+                return;
+            }
+
+            _fazesRepaintScheduled = true;
+
+            try
+            {
+                _gridFazes.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (_gridFazes != null && !_gridFazes.IsDisposed)
+                        {
+                            PaintTableOptimizeFazes();
+                        }
+                    }
+                    finally
+                    {
+                        _fazesRepaintScheduled = false;
+                    }
+                }));
+            }
+            catch
+            {
+                _fazesRepaintScheduled = false;
             }
         }
 
@@ -1799,6 +2079,8 @@ namespace OsEngine.OsOptimizer
                 _gridFazes.Invoke(new Action(PaintTableOptimizeFazes));
                 return;
             }
+
+            try { _gridFazes.EndEdit(); } catch { }
 
             _gridFazes.Rows.Clear();
 
@@ -2013,12 +2295,19 @@ namespace OsEngine.OsOptimizer
 
         private void _gridParameters_CellClick(object sender, DataGridViewCellEventArgs e)
         {
-            int columnIndx = e.ColumnIndex;
-            _lastRowClickParamGridNum = e.RowIndex;
-
-            if (columnIndx == 0)
+            try
             {
-                Task.Run(StopRedactTableTask);
+                int columnIndx = e.ColumnIndex;
+                _lastRowClickParamGridNum = e.RowIndex;
+
+                if (columnIndx == 0)
+                {
+                    Task.Run(StopRedactTableTask);
+                }
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
             }
         }
 
@@ -2076,8 +2365,8 @@ namespace OsEngine.OsOptimizer
             // 0 on / off
             row.Cells.Add(new DataGridViewCheckBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 1 Param Name by User
             row.Cells.Add(new DataGridViewTextBoxCell());
@@ -2099,29 +2388,29 @@ namespace OsEngine.OsOptimizer
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 5 Increment
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 6 End value
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 7 Increment type
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             return row;
         }
@@ -2142,8 +2431,8 @@ namespace OsEngine.OsOptimizer
             // 0 on / off
             row.Cells.Add(new DataGridViewCheckBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 1 Param Name by User
             row.Cells.Add(new DataGridViewTextBoxCell());
@@ -2175,29 +2464,29 @@ namespace OsEngine.OsOptimizer
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 5 Increment
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 6 End value
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 7 Increment type
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             return row;
         }
@@ -2218,8 +2507,8 @@ namespace OsEngine.OsOptimizer
             // 0 on / off
             row.Cells.Add(new DataGridViewCheckBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 1 Param Name by User
             row.Cells.Add(new DataGridViewTextBoxCell());
@@ -2240,29 +2529,29 @@ namespace OsEngine.OsOptimizer
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 5 Increment
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 6 End value
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 7 Increment type
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             return row;
         }
@@ -2303,8 +2592,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == true)
             {
                 row.Cells[^1].ReadOnly = false;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 4 Start value
@@ -2315,8 +2604,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 5 Increment
@@ -2328,8 +2617,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 6 End value
@@ -2340,8 +2629,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 7 Increment type
@@ -2355,8 +2644,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             return row;
@@ -2397,8 +2686,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == true)
             {
                 row.Cells[^1].ReadOnly = false;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 4 Start value
@@ -2409,8 +2698,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 5 Increment
@@ -2422,8 +2711,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 6 End value
@@ -2434,8 +2723,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 7 Increment type
@@ -2449,8 +2738,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             return row;
@@ -2491,8 +2780,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == true)
             {
                 row.Cells[^1].ReadOnly = false;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 4 Start value
@@ -2503,8 +2792,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 5 Increment
@@ -2515,8 +2804,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 6 End value
@@ -2527,8 +2816,8 @@ namespace OsEngine.OsOptimizer
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             // 7 Increment type
@@ -2558,14 +2847,14 @@ namespace OsEngine.OsOptimizer
             row.Cells.Add(cell);
 
             row.Cells[^1].ReadOnly = false;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             if (isOptimize == false)
             {
                 row.Cells[^1].ReadOnly = true;
-                row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
 
             return row;
@@ -2587,8 +2876,8 @@ namespace OsEngine.OsOptimizer
             // 0 on / off
             row.Cells.Add(new DataGridViewCheckBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 1 Param Name by User
             row.Cells.Add(new DataGridViewTextBoxCell());
@@ -2645,22 +2934,22 @@ namespace OsEngine.OsOptimizer
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 5 Increment
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[^1].ReadOnly = true;
-            row.Cells[^1].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[^1].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[^1].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[^1].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             // 6 End value
 
             row.Cells.Add(new DataGridViewTextBoxCell());
             row.Cells[6].ReadOnly = true;
-            row.Cells[6].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[6].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[6].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[6].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             return row;
         }
@@ -2880,61 +3169,68 @@ namespace OsEngine.OsOptimizer
         private void ActivateRowOptimizing(DataGridViewRow row)
         {
             row.Cells[3].ReadOnly = true;
-            row.Cells[3].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[3].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[3].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[3].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             row.Cells[4].ReadOnly = false;
-            row.Cells[4].Style.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-            row.Cells[4].Style.SelectionBackColor = System.Drawing.Color.FromArgb(17, 18, 23);
+            row.Cells[4].Style.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+            row.Cells[4].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
 
             row.Cells[5].ReadOnly = false;
-            row.Cells[5].Style.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-            row.Cells[5].Style.SelectionBackColor = System.Drawing.Color.FromArgb(17, 18, 23);
+            row.Cells[5].Style.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+            row.Cells[5].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
 
             row.Cells[6].ReadOnly = false;
-            row.Cells[6].Style.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-            row.Cells[6].Style.SelectionBackColor = System.Drawing.Color.FromArgb(17, 18, 23);
+            row.Cells[6].Style.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+            row.Cells[6].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
 
             if(row.Cells.Count > 6
                 && row.Cells[7] != null)
             {
                 row.Cells[7].ReadOnly = false;
-                row.Cells[7].Style.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-                row.Cells[7].Style.SelectionBackColor = System.Drawing.Color.FromArgb(17, 18, 23);
+                row.Cells[7].Style.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+                row.Cells[7].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
             }
         }
 
         private void UnActivateRowOptimizing(DataGridViewRow row)
         {
             row.Cells[3].ReadOnly = false;
-            row.Cells[3].Style.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-            row.Cells[3].Style.SelectionBackColor = System.Drawing.Color.FromArgb(17, 18, 23);
+            row.Cells[3].Style.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+            row.Cells[3].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
 
             row.Cells[4].ReadOnly = true;
-            row.Cells[4].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[4].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[4].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[4].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             row.Cells[5].ReadOnly = true;
-            row.Cells[5].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[5].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[5].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[5].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             row.Cells[6].ReadOnly = true;
-            row.Cells[6].Style.BackColor = System.Drawing.Color.DimGray;
-            row.Cells[6].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+            row.Cells[6].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+            row.Cells[6].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
 
             if (row.Cells.Count > 6
              && row.Cells[7] != null)
             {
                 row.Cells[7].ReadOnly = true;
-                row.Cells[7].Style.BackColor = System.Drawing.Color.DimGray;
-                row.Cells[7].Style.SelectionBackColor = System.Drawing.Color.DimGray;
+                row.Cells[7].Style.BackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
+                row.Cells[7].Style.SelectionBackColor = Themes.ThemeManager.GetColorWinForms("OptimizerStageCellColor");
             }
         }
 
         private void _gridParameters_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
-            SaveParametersFromTable();
-            Task.Run(new Action(PaintCountBotsInOptimization));
+            try
+            {
+                SaveParametersFromTable();
+                Task.Run(new Action(PaintCountBotsInOptimization));
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         private object _locker = new object();
@@ -3080,8 +3376,15 @@ namespace OsEngine.OsOptimizer
 
         private void _gridFazesEnd_CellClick(object sender, DataGridViewCellEventArgs e)
         {
-            PaintTableResults();
-            PaintSeriesResultsChart();
+            try
+            {
+                PaintTableResults();
+                PaintSeriesResultsChart();
+            }
+            catch (Exception ex)
+            {
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
+            }
         }
 
         #endregion
@@ -3223,7 +3526,7 @@ namespace OsEngine.OsOptimizer
 
             _gridResults.Columns[2].HeaderText = "Pos Count";
 
-            System.Drawing.Color cellColor = System.Drawing.Color.Black;
+            System.Drawing.Color cellColor = Themes.ThemeManager.GetColorWinForms("GridSelectionBackColor");
 
             for (int i = 0; i < _gridResults.Columns.Count; i++)
             {
@@ -3390,7 +3693,7 @@ namespace OsEngine.OsOptimizer
                     row.Cells.Add(cell3);
 
                     DataGridViewTextBoxCell cell33 = new DataGridViewTextBoxCell();
-                    cell33.Value = Math.Round(report.ProfitPositionPercent, 2);
+                    cell33.Value = Math.Round(report.ProfitPositionPercent, 3);
                     row.Cells.Add(cell33);
 
                     DataGridViewTextBoxCell cell34 = new DataGridViewTextBoxCell();
@@ -3407,35 +3710,35 @@ namespace OsEngine.OsOptimizer
                     row.Cells.Add(cell34);
 
                     DataGridViewTextBoxCell cell4 = new DataGridViewTextBoxCell();
-                    cell4.Value = Math.Round(report.TotalProfit, 5).ToStringWithNoEndZero() + " (" + report.TotalProfitPercent.ToStringWithNoEndZero() + "%)";
+                    cell4.Value = Math.Round(report.TotalProfit, 3).ToStringWithNoEndZero() + " (" + Math.Round(report.TotalProfitPercent, 3).ToStringWithNoEndZero() + "%)";
                     row.Cells.Add(cell4);
 
                     DataGridViewTextBoxCell cell5 = new DataGridViewTextBoxCell();
-                    cell5.Value = Math.Round(report.MaxDrawDawn, 5).ToStringWithNoEndZero();
+                    cell5.Value = Math.Round(report.MaxDrawDawn, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell5);
 
                     DataGridViewTextBoxCell cell6 = new DataGridViewTextBoxCell();
-                    cell6.Value = Math.Round(report.AverageProfit, 5).ToStringWithNoEndZero();
+                    cell6.Value = Math.Round(report.AverageProfit, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell6);
 
                     DataGridViewTextBoxCell cell7 = new DataGridViewTextBoxCell();
-                    cell7.Value = Math.Round(report.AverageProfitPercentOneContract, 5).ToStringWithNoEndZero();
+                    cell7.Value = Math.Round(report.AverageProfitPercentOneContract, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell7);
 
                     DataGridViewTextBoxCell cell8 = new DataGridViewTextBoxCell();
-                    cell8.Value = Math.Round(report.ProfitFactor, 5).ToStringWithNoEndZero();
+                    cell8.Value = Math.Round(report.ProfitFactor, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell8);
 
                     DataGridViewTextBoxCell cell9 = new DataGridViewTextBoxCell();
-                    cell9.Value = Math.Round(report.PayOffRatio, 5).ToStringWithNoEndZero();
+                    cell9.Value = Math.Round(report.PayOffRatio, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell9);
 
                     DataGridViewTextBoxCell cell10 = new DataGridViewTextBoxCell();
-                    cell10.Value = Math.Round(report.Recovery, 5).ToStringWithNoEndZero();
+                    cell10.Value = Math.Round(report.Recovery, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell10);
 
                     DataGridViewTextBoxCell cell11 = new DataGridViewTextBoxCell();
-                    cell11.Value = Math.Round(report.SharpRatio, 5).ToStringWithNoEndZero();
+                    cell11.Value = Math.Round(report.SharpRatio, 3).ToStringWithNoEndZero();
                     row.Cells.Add(cell11);
 
                     DataGridViewButtonCell cell12 = new DataGridViewButtonCell();
@@ -3469,19 +3772,26 @@ namespace OsEngine.OsOptimizer
 
         private void _gridResults_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
-            if (e.RowIndex < 0)
+            try
             {
-                return;
-            }
+                if (e.RowIndex < 0)
+                {
+                    return;
+                }
 
-            if (e.ColumnIndex == 13)
-            {
-                ShowBotChartDialog(e);
-            }
+                if (e.ColumnIndex == 13)
+                {
+                    ShowBotChartDialog(e);
+                }
 
-            if (e.ColumnIndex == 14)
+                if (e.ColumnIndex == 14)
+                {
+                    ShowParametersDialog(e);
+                }
+            }     
+            catch (Exception ex)
             {
-                ShowParametersDialog(e);
+                _master?.SendLogMessage(ex.ToString(), LogMessageType.Error);
             }
         }
 
@@ -3510,6 +3820,11 @@ namespace OsEngine.OsOptimizer
             }
 
             BotPanel bot = _master.TestBot(fazeReport, fazeReport.Reports[e.RowIndex]);
+
+            if(bot == null)
+            {
+                return;
+            }
 
             BotPanelChartUi ui = bot.ShowChartDialog();
 
@@ -3652,7 +3967,8 @@ namespace OsEngine.OsOptimizer
 
         private void PaintBotInTable(string botName)
         {
-            System.Drawing.Color selectBotColor = System.Drawing.Color.FromArgb(255, 83, 0);
+            System.Drawing.Color selectBotColor = Themes.ThemeManager.GetColorWinForms("OptimizerCursorColor");
+            System.Drawing.Color normalBotColor = Themes.ThemeManager.GetColorWinForms("GridTextColor");
 
             for (int i2 = 0; i2 < _gridResults.Rows.Count; i2++)
             {
@@ -3662,6 +3978,9 @@ namespace OsEngine.OsOptimizer
                 {
                     for (int i = 0; i < row.Cells.Count; i++)
                     {
+                        // клон: иначе ячейки делят один объект стиля
+                        // и покраска протекает на всю таблицу
+                        row.Cells[i].Style = (DataGridViewCellStyle)_gridResults.DefaultCellStyle.Clone();
                         row.Cells[i].Style.ForeColor = selectBotColor;
                     }
                 }
@@ -3671,7 +3990,10 @@ namespace OsEngine.OsOptimizer
                     {
                         if (row.Cells[i].Style.ForeColor == selectBotColor)
                         {
-                            row.Cells[i].Style = _gridResults.DefaultCellStyle;
+                            // у DefaultCellStyle этого грида чёрный ForeColor,
+                            // поэтому обычный цвет текста ставим из темы явно
+                            row.Cells[i].Style = (DataGridViewCellStyle)_gridResults.DefaultCellStyle.Clone();
+                            row.Cells[i].Style.ForeColor = normalBotColor;
                         }
                     }
                 }
@@ -3692,22 +4014,22 @@ namespace OsEngine.OsOptimizer
 
             _chartSeriesResult.ChartAreas.Clear();
             _chartSeriesResult.ChartAreas.Add(area);
-            _chartSeriesResult.BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-            _chartSeriesResult.ChartAreas[0].AxisX.TitleForeColor = System.Drawing.Color.FromArgb(149, 159, 176);
+            _chartSeriesResult.BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+            _chartSeriesResult.ChartAreas[0].AxisX.TitleForeColor = Themes.ThemeManager.GetColorWinForms("OptimizerChartTextColor");
 
             for (int i = 0; _chartSeriesResult.ChartAreas != null && i < _chartSeriesResult.ChartAreas.Count; i++)
             {
                 _chartSeriesResult.ChartAreas[i].CursorX.IsUserSelectionEnabled = false;
                 _chartSeriesResult.ChartAreas[i].CursorX.IsUserEnabled = true;
-                _chartSeriesResult.ChartAreas[i].CursorX.LineColor = System.Drawing.Color.FromArgb(255, 83, 0);
+                _chartSeriesResult.ChartAreas[i].CursorX.LineColor = Themes.ThemeManager.GetColorWinForms("OptimizerCursorColor");
                 _chartSeriesResult.ChartAreas[i].CursorX.LineWidth = 2;
-                _chartSeriesResult.ChartAreas[i].BackColor = System.Drawing.Color.FromArgb(21, 26, 30);
-                _chartSeriesResult.ChartAreas[i].BorderColor = System.Drawing.Color.FromArgb(17, 18, 23);
-                _chartSeriesResult.ChartAreas[i].CursorY.LineColor = System.Drawing.Color.FromArgb(149, 159, 176);
+                _chartSeriesResult.ChartAreas[i].BackColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColorLight");
+                _chartSeriesResult.ChartAreas[i].BorderColor = Themes.ThemeManager.GetColorWinForms("StandardBackGroundColor");
+                _chartSeriesResult.ChartAreas[i].CursorY.LineColor = Themes.ThemeManager.GetColorWinForms("OptimizerChartTextColor");
 
                 foreach (var axe in _chartSeriesResult.ChartAreas[i].Axes)
                 {
-                    axe.LabelStyle.ForeColor = System.Drawing.Color.FromArgb(149, 159, 176);
+                    axe.LabelStyle.ForeColor = Themes.ThemeManager.GetColorWinForms("OptimizerChartTextColor");
                 }
             }
 
@@ -3750,7 +4072,7 @@ namespace OsEngine.OsOptimizer
                         continue;
                     }
                     _chartSeriesResult.Series[0].Points[i].Label = null;
-                    _chartSeriesResult.Series[0].Points[i].LabelForeColor = System.Drawing.Color.White;
+                    _chartSeriesResult.Series[0].Points[i].LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                 }
 
                 if (index >= _chartSeriesResult.Series[0].Points.Count)
@@ -3946,7 +4268,7 @@ namespace OsEngine.OsOptimizer
                     for (int i = 0; i < _chartSeriesResult.Series[0].Points.Count; i++)
                     {
                         _chartSeriesResult.Series[0].Points[i].Label = null;
-                        _chartSeriesResult.Series[0].Points[i].LabelForeColor = System.Drawing.Color.White;
+                        _chartSeriesResult.Series[0].Points[i].LabelForeColor = Themes.ThemeManager.GetColorWinForms("JournalEquityTotalColor");
                     }
 
                     int index = (int)_chartSeriesResult.ChartAreas[0].CursorX.Position;

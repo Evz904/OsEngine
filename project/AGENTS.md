@@ -7,12 +7,14 @@
 1. [`CONTEXT.md`](CONTEXT.md) — карта проекта.
 2. [`CONTEXT_CODING_GUIDELINES.md`](CONTEXT_CODING_GUIDELINES.md) — стиль кода.
 3. Доменный `CONTEXT_*.md` по задаче.
+4. Работа с коннекторами (`OsEngine/Market/Servers/`) → [`CONTEXT_CONNECTORS.md`](CONTEXT_CONNECTORS.md).
 
 ## Принципы
 
 - Код изменяется только через инструменты (`WriteFile`, `StrReplaceFile`, `Shell`). Показать код в чате — не замена.
 - Минимальные изменения. Сохраняй стиль и сигнатуры.
 - Не ломай обратную совместимость без необходимости.
+- Сохраняй кодировку файлов: не снимай UTF-8 BOM, если он был, и не меняй CRLF на LF — это засоряет дифф.
 - Собирай и тестируй после правок.
 
 ## Сборка и тесты
@@ -21,15 +23,31 @@
 # Завершить процесс, если запущен
 taskkill /F /IM OsEngine.exe
 
-# Сборка
+# Сборка основного проекта (обычный случай)
+dotnet build OsEngine/OsEngine.csproj
+
+# Полная сборка решения — только если тронуты Tests/*
+# (DividendsUpdater, McpTestStand и т.п.) или перед релизом
 dotnet build OsEngine.sln
 
 # Тестовый стенд MCP
 cd Tests/McpTestStand/OsEngine.McpApi.TestStand/bin/Debug/net10.0
 ./OsEngine.McpApi.TestStand.exe
+
+# Только выбранные модули: номер или подстрока имени, через запятую
+# (1 Protocol, 2 Logs, 3 Settings, 4 Config, 5 ServerManagement,
+#  6 ServerInstance, 7 SSE, 8 Errors, 9 WikiRobots, 10 WikiIndicators,
+#  11 WikiSecurities, 12 WikiDividends, 13 Data, 14 Tester, 15 Terminal,
+#  16 SystemLoad, 17 ComparePositions, 18 Proxy, 19 Optimizer, 20 Encryption)
+./OsEngine.McpApi.TestStand.exe --module Tester
+./OsEngine.McpApi.TestStand.exe --module 5,6
 ```
 
-Цель стенда: **78/78 passed**.
+Цель стенда: **200/200 passed** (`--transport v2`) и **191/191 passed** (`--transport v1`).
+
+**Важно:** тестовый стенд MCP API (`OsEngine.McpApi.TestStand.exe`) запускать только с **явного разрешения пользователя**.
+
+Стенд работает в foreground. При запуске из Kimi Shell он создаёт собственное видимое консольное окно; вывод дублируется в это окно, в исходный stdout и в лог-файл `mcp-test-stand-yyyyMMdd-HHmmss.log` рядом с `.exe`. Запрещено использовать `run_in_background=true`. Длительность прогона — около 4 минут; дожидаться завершения через `TaskOutput(block=true)` или автоматическое уведомление.
 
 ## Исследование кода
 
@@ -49,8 +67,9 @@ cd Tests/McpTestStand/OsEngine.McpApi.TestStand/bin/Debug/net10.0
 
 Если меняешь:
 
-- MCP API → `CONTEXT_MCP.md`, `CONTEXT_MCP_API_DEVELOPMENT.md`.
-- Сценарии MCP → `CONTEXT_MCP_SCENARIO.md`.
+- MCP API (V2, рекомендуемая) → `CONTEXT_MCP_V2.md`, `TempContext/CONTEXT_MCP_API_DEVELOPMENT.md`.
+- MCP API (V1, легаси) → `CONTEXT_MCP_V1.md`.
+- Сценарии MCP → `CONTEXT_MCP_SCENARIO_V2.md` (V2) / `CONTEXT_MCP_SCENARIO_V1.md` (V1, легаси).
 - Соглашения → `CONTEXT_CODING_GUIDELINES.md`.
 - Карту проекта → `CONTEXT.md`.
 - Правила агентов → этот файл.
@@ -70,7 +89,7 @@ cd Tests/McpTestStand/OsEngine.McpApi.TestStand/bin/Debug/net10.0
 ## Чек-лист перед ответом
 
 - [ ] Код записан в файловую систему.
-- [ ] `dotnet build OsEngine.sln` успешно.
+- [ ] Сборка успешна (`dotnet build OsEngine/OsEngine.csproj`; для `Tests/*` — `dotnet build OsEngine.sln`).
 - [ ] Релевантные тесты пройдены.
 - [ ] Документация обновлена при необходимости.
 - [ ] Git не мутировал без разрешения.

@@ -136,7 +136,11 @@ namespace OsEngine.Entity
 
         private void _mainPosGrid_DataError(object sender, DataGridViewDataErrorEventArgs e)
         {
-            ServerMaster.SendNewLogMessage(e.ToString(), Logging.LogMessageType.Error);
+            string errorMessage = e.Exception != null
+                ? "DataGridViewDataError: " + e.Exception
+                : "DataGridViewDataError: " + e.ToString();
+
+            ServerMaster.SendNewLogMessage(errorMessage, Logging.LogMessageType.Error);
         }
 
         private void PaintPosTable()
@@ -332,6 +336,8 @@ namespace OsEngine.Entity
             typeCell.Items.Add(OrderPriceType.Limit.ToString());
             typeCell.Items.Add(OrderPriceType.Market.ToString());
             typeCell.Items.Add(OrderPriceType.Iceberg.ToString());
+            typeCell.Items.Add(OrderPriceType.StopLimit.ToString());
+            typeCell.Items.Add(OrderPriceType.StopMarket.ToString());
             nRow.Cells.Add(typeCell);
             nRow.Cells[10].Value = order.TypeOrder.ToString();
 
@@ -418,7 +424,8 @@ namespace OsEngine.Entity
                 _position.AddNewCloseOrder(newOrder);
 
                 SyncPositionWithOrdersAndMyTrades();
-                PaintOrderTable();
+                _position.RecheckState();
+                RePaint();
                 PositionChanged = true;
             }
             catch (Exception ex)
@@ -461,6 +468,7 @@ namespace OsEngine.Entity
                 }
 
                 _position.CloseOrders.RemoveAt(number);
+                _position.RecheckState();
                 RePaint();
                 PositionChanged = true;
             }
@@ -574,7 +582,8 @@ namespace OsEngine.Entity
                 _position.AddNewOpenOrder(newOrder);
 
                 SyncPositionWithOrdersAndMyTrades();
-                PaintOrderTable();
+                _position.RecheckState();
+                RePaint();
                 PositionChanged = true;
             }
             catch (Exception ex)
@@ -612,6 +621,7 @@ namespace OsEngine.Entity
                 }
 
                 _position.OpenOrders.RemoveAt(number);
+                _position.RecheckState();
                 RePaint();
                 PositionChanged = true;
             }
@@ -884,6 +894,7 @@ namespace OsEngine.Entity
                 myOrd.SetTrade(trade);
 
                 SyncPositionWithOrdersAndMyTrades();
+                _position.RecheckState();
                 RePaint();
                 PositionChanged = true;
             }
@@ -922,6 +933,7 @@ namespace OsEngine.Entity
                 myOrd.SetTrade(trade);
 
                 SyncPositionWithOrdersAndMyTrades();
+                _position.RecheckState();
                 RePaint();
                 PositionChanged = true;
             }
@@ -1017,6 +1029,7 @@ namespace OsEngine.Entity
                     curOrd.ReCalculateVolume();
                 }
 
+                _position.RecheckState();
                 PositionChanged = true;
                 RePaint();
             }
@@ -1137,12 +1150,27 @@ namespace OsEngine.Entity
                 }
 
 
+                bool stateChangedByUser = false;
+
+                object stateCellValue = _mainPosGrid.Rows[0].Cells[6].Value;
+
+                if (stateCellValue != null
+                    && stateCellValue.ToString() != _position.State.ToString())
+                {
+                    stateChangedByUser = true;
+                }
+
                 SyncPositionWithOrdersAndMyTrades();
                 SavePosition();
                 SaveMyTrades();
                 SaveOrders(_position.OpenOrders, _openOrdersGrid.Rows);
                 SaveOrders(_position.CloseOrders, _closeOrdersGrid.Rows);
-              
+
+                if (stateChangedByUser == false)
+                {
+                    _position.RecheckState();
+                }
+
                 PositionChanged = true;
 
                 Close();

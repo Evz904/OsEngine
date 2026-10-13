@@ -93,6 +93,8 @@ using OsEngine.Market.Servers.QscalpMarketDepth;
 using OsEngine.Market.Servers.TData;
 using OsEngine.Market.Servers.BitGetUnified;
 using OsEngine.Market.Servers.TwelveData;
+using OsEngine.Market.Servers.BCS;
+using OsEngine.Market.ServerEncryption;
 
 namespace OsEngine.Market
 {
@@ -104,6 +106,37 @@ namespace OsEngine.Market
     {
 
         #region Service
+
+        static ServerMaster()
+        {
+            ServerEncryptionMaster.UnlockedEvent += ServerEncryptionMaster_UnlockedEvent;
+        }
+
+        private static void ServerEncryptionMaster_UnlockedEvent()
+        {
+            try
+            {
+                // шифрователь разблокировали позже старта - дозагружаем пароли уже созданных серверов
+                List<IServer> servers = GetServers();
+
+                if (servers == null)
+                {
+                    return;
+                }
+
+                for (int i = 0; i < servers.Count; i++)
+                {
+                    if (servers[i] is AServer aServer)
+                    {
+                        aServer.ReloadPasswordParams();
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
 
         public static void Activate()
         {
@@ -292,9 +325,9 @@ namespace OsEngine.Market
 
         public static void RealStarted()
         {
-            if (ServerMasterActivateInTesterRegimeEvent != null)
+            if (ServerMasterActivateInRealRegimeEvent != null)
             {
-                ServerMasterActivateInTesterRegimeEvent();
+                ServerMasterActivateInRealRegimeEvent();
             }
         }
 
@@ -307,6 +340,8 @@ namespace OsEngine.Market
         }
 
         public static event Action ServerMasterActivateInTesterRegimeEvent;
+
+        public static event Action ServerMasterActivateInRealRegimeEvent;
 
         public static event Action ServerMasterActivateInOptimizerRegimeEvent;
 
@@ -335,6 +370,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.Plaza);
                 serverTypes.Add(ServerType.Transaq);
                 serverTypes.Add(ServerType.TInvest);
+                serverTypes.Add(ServerType.TInvestAutoFollow);
                 serverTypes.Add(ServerType.Finam);
                 serverTypes.Add(ServerType.MoexDataServer);
                 serverTypes.Add(ServerType.MfdWeb);
@@ -385,6 +421,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.AscendexSpot);
                 serverTypes.Add(ServerType.BitGetUnified);
                 serverTypes.Add(ServerType.TwelveData);
+                serverTypes.Add(ServerType.BCS);
 
                 // а теперь сортируем в зависимости от предпочтений пользователя
 
@@ -517,6 +554,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.QscalpMarketDepth);
                 serverTypes.Add(ServerType.TDataHistory);
                 serverTypes.Add(ServerType.TwelveData);
+                serverTypes.Add(ServerType.BCS);
 
                 return serverTypes;
             }
@@ -655,7 +693,7 @@ namespace OsEngine.Market
 
                     if (type == ServerType.BitGetUnified)
                     {
-                        newServer = new BitGetUnifiedServer();
+                        newServer = new BitGetUnifiedServer(uniqueNum);
                     }
                     if (type == ServerType.TDataHistory)
                     {
@@ -772,6 +810,10 @@ namespace OsEngine.Market
                     else if (type == ServerType.TInvest)
                     {
                         newServer = new TInvestServer(uniqueNum);
+                    }
+                    else if (type == ServerType.TInvestAutoFollow)
+                    {
+                        newServer = new TInvestAutoFollowServer(uniqueNum);
                     }
                     else if (type == ServerType.GateIoSpot)
                     {
@@ -912,6 +954,10 @@ namespace OsEngine.Market
                     else if (type == ServerType.TwelveData)
                     {
                         newServer = new TwelveDataServer();
+                    }
+                    else if (type == ServerType.BCS)
+                    {
+                        newServer = new BcsServer(uniqueNum);
                     }
 
                     if (newServer == null)
@@ -1301,6 +1347,12 @@ namespace OsEngine.Market
         private static List<ServerType> _tryActivateServerTypes;
 
         /// <summary>
+        /// the "auto deployment is not possible, encryptor locked" error has already been reported this session
+        /// ошибка «авто-развёртывание невозможно, шифрователь заблокирован» уже выдавалась в этой сессии
+        /// </summary>
+        private static bool _encryptLockedErrorReported;
+
+        /// <summary>
         /// work place of the thread that connects our servers in auto mode
         /// </summary>
         private static async void ThreadStarterWorkArea()
@@ -1353,6 +1405,28 @@ namespace OsEngine.Market
         {
             try
             {
+                // гейт шифрователя: не разворачиваем серверы с пустыми ключами
+                if (ServerEncryptionMaster.GetStatus() == ServerEncryptionStatus.Encrypted
+                    && ServerEncryptionMaster.IsUnlocked == false)
+                {
+                    if (ServerEncryptionMaster.UnlockDeclinedThisSession == false)
+                    {
+                        ServerEncryptionMaster.RequestUnlock();
+                    }
+
+                    if (ServerEncryptionMaster.IsUnlocked == false)
+                    {
+                        if (_encryptLockedErrorReported == false)
+                        {
+                            _encryptLockedErrorReported = true;
+                            SendNewLogMessage("Auto deployment is not possible: encryption is enabled. Unlock the encryptor first (Encryption button in any connector window or via MCP) / " +
+                                "Авто-развёртывание невозможно: включено шифрование. Сначала разблокируйте шифрователь (кнопка «Шифрование» в любом коннекторе или через MCP)", LogMessageType.Error);
+                        }
+
+                        return;
+                    }
+                }
+
                 for (int i = 0; i < _tryActivateServerTypes.Count; i++)
                 {
                     if (_tryActivateServerTypes[i] == type)
@@ -1577,6 +1651,10 @@ namespace OsEngine.Market
                 {
                     serverPermission = new TInvestServerPermission();
                 }
+                else if (type == ServerType.TInvestAutoFollow)
+                {
+                    serverPermission = new TInvestAutoFollowServerPermission();
+                }
                 else if (type == ServerType.GateIoFutures)
                 {
                     serverPermission = new GateIoServerFuturesPermission();
@@ -1728,6 +1806,10 @@ namespace OsEngine.Market
                 else if (type == ServerType.TwelveData)
                 {
                     serverPermission = new TwelveDataPermission();
+                }
+                else if (type == ServerType.BCS)
+                {
+                    serverPermission = new BcsServerPermission();
                 }
 
                 if (serverPermission != null)
@@ -1922,6 +2004,37 @@ namespace OsEngine.Market
             {
                 SendNewLogMessage(ex.ToString(), LogMessageType.Error);
                 return null;
+            }
+        }
+
+        public static bool UpdateProxy(
+            int number, bool isOn, string ip, int port,
+            string login, string password, string pingWebAddress)
+        {
+            try
+            {
+                ProxyOsa proxy = GetOneProxyAt(number);
+
+                if (proxy == null)
+                {
+                    return false;
+                }
+
+                proxy.IsOn = isOn;
+                proxy.Ip = ip;
+                proxy.Port = port;
+                proxy.Login = login;
+                proxy.UserPassword = password;
+                proxy.PingWebAddress = pingWebAddress;
+
+                _proxyMaster.SaveProxy();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+                return false;
             }
         }
 
@@ -2160,10 +2273,17 @@ namespace OsEngine.Market
             {
                 LogMessageEvent(message, type);
             }
-            else if (type == LogMessageType.Error)
-            { // if nobody is subscribed to us and there is a log error
-              // если на нас никто не подписан и в логе ошибка
-                MessageBox.Show(message);
+            else
+            { // if nobody is subscribed to us - write to the static log
+              // если на нас никто не подписан - пишем в статический лог
+                if (Log != null)
+                {
+                    Log.ProcessMessage(message, type);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("ServerMaster log error: " + type + " " + message);
+                }
             }
         }
 
@@ -2200,6 +2320,12 @@ namespace OsEngine.Market
         /// подключение к Т-Инвестициям (версия 3 коннектора)
         /// </summary>
         TInvest,
+
+        /// <summary>
+        /// connection to T-Invest autofollow service (strategies and signals)
+        /// подключение к сервису автоследования Т-Инвестиций (стратегии и сигналы)
+        /// </summary>
+        TInvestAutoFollow,
 
         /// <summary>
         /// Connecting to different forex brokers via the MT5 terminal
@@ -2565,6 +2691,12 @@ namespace OsEngine.Market
         /// downloading historical data from T-Invest archives
         /// скачивание исторических данных и трансляция данных в режиме реального времени с TwelveData
         /// </summary>
-        TwelveData
+        TwelveData,
+
+        /// <summary>
+        /// Bcs OpenAPI & Websocket
+        /// подключение к АПИ брокера БКС
+        /// </summary>
+        BCS
     }
 }

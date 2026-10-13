@@ -15,6 +15,7 @@ using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
+using OsEngine.Market.ServerEncryption;
 using OsEngine.OsTrader.SystemAnalyze;
 using System.Net.Sockets;
 using System.Text;
@@ -463,6 +464,12 @@ namespace OsEngine.Market.Servers
         /// </summary>
         public bool NeedToHideParameters = false;
 
+        /// <summary>
+        /// blocks the display of standard server parameters (proxy etc.) in the settings window,
+        /// while custom server parameters remain visible
+        /// </summary>
+        public bool NeedToHideStandardParameters = false;
+
         public bool CanDoMultipleConnections
         {
             get
@@ -484,6 +491,12 @@ namespace OsEngine.Market.Servers
         public List<IServerParameter> ServerParameters = new List<IServerParameter>();
 
         private int _serverStandardParamsCount = 12;
+
+        public int ServerStandardParamsCount
+        {
+            get { return _serverStandardParamsCount; }
+        }
+
         public IServerParameter GetStandardServerParameter(int index)
         {
             if (index < 0 || index >= _serverStandardParamsCount)
@@ -698,7 +711,29 @@ namespace OsEngine.Market.Servers
                 {
                     for (int i = 0; i < ServerParameters.Count; i++)
                     {
-                        writer.WriteLine(ServerParameters[i].GetStringToSave());
+                        IServerParameter param = ServerParameters[i];
+
+                        if (param.Type == ServerParameterType.Password
+                            && ServerEncryptionMaster.GetStatus() == ServerEncryptionStatus.Encrypted)
+                        {
+                            if (ServerEncryptionMaster.IsUnlocked == false)
+                            {
+                                ServerEncryptionMaster.RequestUnlock();
+                            }
+
+                            if (ServerEncryptionMaster.IsUnlocked == false)
+                            {
+                                // шифрование включено, но пароль не введён. Не перезаписываем файл открытыми значениями
+                                SendLogMessage("Encryption is enabled, but master password is not entered. Parameters are not saved. Server: " + ServerNameUnique, LogMessageType.Error);
+                                return;
+                            }
+
+                            string encryptedValue = ServerEncryptionMaster.Encrypt(((ServerParameterPassword)param).Value);
+                            writer.WriteLine(param.Type + "^" + param.Name + "^" + encryptedValue);
+                            continue;
+                        }
+
+                        writer.WriteLine(param.GetStringToSave());
                     }
 
                     writer.Close();
@@ -786,6 +821,11 @@ namespace OsEngine.Market.Servers
                         if (oldParam.Name == param.Name &&
                             oldParam.Type == param.Type)
                         {
+                            if (type == ServerParameterType.Password)
+                            {
+                                DecryptLoadedPasswordValue((ServerParameterPassword)oldParam);
+                            }
+
                             return oldParam;
                         }
                     }
@@ -798,6 +838,90 @@ namespace OsEngine.Market.Servers
                 SendLogMessage(error.ToString(), LogMessageType.Error);
             }
             return param;
+        }
+
+        /// <summary>
+        /// reload password parameters from the file. Used after the encryptor is unlocked -
+        /// servers created while locked had empty password values
+        /// перезагрузить парольные параметры из файла. Используется после разблокировки шифрователя -
+        /// у серверов, созданных в заблокированном состоянии, пароли были пустыми
+        /// </summary>
+        public void ReloadPasswordParams()
+        {
+            try
+            {
+                for (int i = 0; i < ServerParameters.Count; i++)
+                {
+                    if (ServerParameters[i].Type != ServerParameterType.Password)
+                    {
+                        continue;
+                    }
+
+                    IServerParameter loaded = LoadParam(ServerParameters[i]);
+
+                    if (loaded == null
+                        || loaded.Type != ServerParameterType.Password
+                        || loaded.Name != ServerParameters[i].Name)
+                    {
+                        continue;
+                    }
+
+                    ((ServerParameterPassword)ServerParameters[i]).Value = ((ServerParameterPassword)loaded).Value;
+                }
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// decrypt the value of the password parameter loaded from the file
+        /// расшифровать значение парольного параметра, загруженное из файла
+        /// </summary>
+        private void DecryptLoadedPasswordValue(ServerParameterPassword param)
+        {
+            try
+            {
+                string value = param.Value;
+
+                if (ServerEncryptionMaster.IsEncryptedValue(value) == false)
+                {
+                    return;
+                }
+
+                if (ServerEncryptionMaster.GetStatus() != ServerEncryptionStatus.Encrypted)
+                {
+                    // файл состояния шифрования удалён - расшифровать нечем, сверять пароль не с чем
+                    SendLogMessage("Encrypted password parameter found, but encryption state file is missing. Re-enter the key. Server: " + ServerNameUnique + ", parameter: " + param.Name, LogMessageType.Error);
+                    param.LoadFromStr(ServerParameterType.Password + "^" + param.Name + "^" + "");
+                    return;
+                }
+
+                if (ServerEncryptionMaster.IsUnlocked == false
+                    && ServerEncryptionMaster.UnlockDeclinedThisSession == false)
+                {
+                    ServerEncryptionMaster.RequestUnlock();
+                }
+
+                string plain = null;
+
+                if (ServerEncryptionMaster.IsUnlocked)
+                {
+                    ServerEncryptionMaster.TryDecrypt(value, out plain);
+                }
+
+                if (plain == null)
+                {
+                    plain = "";
+                }
+
+                param.LoadFromStr(ServerParameterType.Password + "^" + param.Name + "^" + plain);
+            }
+            catch (Exception error)
+            {
+                SendLogMessage(error.ToString(), LogMessageType.Error);
+            }
         }
 
         /// <summary>
@@ -1268,6 +1392,7 @@ namespace OsEngine.Market.Servers
                         if (NeedToReconnectEvent != null)
                         {
                             Thread worker = new Thread(SendReconnectEvent);
+                            worker.IsBackground = true;
                             worker.Start();
                         }
 
@@ -1328,6 +1453,7 @@ namespace OsEngine.Market.Servers
                     if (NeedToReconnectEvent != null)
                     {
                         Thread worker = new Thread(SendReconnectEvent);
+                        worker.IsBackground = true;
                         worker.Start();
                     }
 
@@ -1361,12 +1487,19 @@ namespace OsEngine.Market.Servers
         {
             try
             {
-                if (_candleManager != null)
+                CandleManager manager;
+
+                lock (_lockerStarter)
                 {
-                    _candleManager.CandleUpdateEvent -= _candleManager_CandleUpdateEvent;
-                    _candleManager.LogMessageEvent -= SendLogMessage;
-                    _candleManager.Dispose();
+                    manager = _candleManager;
                     _candleManager = null;
+                }
+
+                if (manager != null)
+                {
+                    manager.CandleUpdateEvent -= _candleManager_CandleUpdateEvent;
+                    manager.LogMessageEvent -= SendLogMessage;
+                    manager.Dispose();
                 }
             }
             catch (Exception ex)
@@ -4358,6 +4491,32 @@ namespace OsEngine.Market.Servers
 
         public ComparePositionsModule ComparePositionsModule;
 
+        /// <summary>
+        /// margin mode and leverage of the security as the exchange reported them last time.
+        /// Null if the connector does not provide this data or it has not been received yet
+        /// режим маржи и плечо инструмента по последним данным биржи.
+        /// Null, если коннектор не отдаёт эти данные или они ещё не получены
+        /// </summary>
+        public SecurityMarginInfo GetMarginInfo(string securityNameCode)
+        {
+            IServerMarginInfo provider = _serverRealization as IServerMarginInfo;
+
+            if (provider == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return provider.GetMarginInfo(securityNameCode);
+            }
+            catch (Exception ex)
+            {
+                SendLogMessage(ex.ToString(), LogMessageType.Error);
+                return null;
+            }
+        }
+
         public void ShowComparePositionsModuleDialog(string portfolioName)
         {
             ComparePositionsModuleUi myUi = null;
@@ -4680,6 +4839,7 @@ namespace OsEngine.Market.Servers
                 _messageFirstConnect = $"{this.ServerNameUnique}%Openings";
 
                 Thread thread = new Thread(SendMessageConnectorConnect);
+                thread.IsBackground = true;
                 thread.Start();
 
                 HasConnectionMessageBeenSent = true;
@@ -4714,6 +4874,7 @@ namespace OsEngine.Market.Servers
                 _messageFirstOrder = $"{this.ServerNameUnique}%Orders";
 
                 Thread thread = new Thread(SendMessageFirstOrder);
+                thread.IsBackground = true;
                 thread.Start();
 
                 HasFirstOrderMessageBeenSent = true;

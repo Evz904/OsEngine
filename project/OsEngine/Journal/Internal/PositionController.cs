@@ -12,14 +12,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
-using static OsEngine.Market.Servers.Deribit.Entity.ResponseChannelUserChanges;
-using static OsEngine.OsTrader.GlobalPositionViewer;
 
 namespace OsEngine.Journal.Internal
 {
@@ -59,6 +55,7 @@ namespace OsEngine.Journal.Internal
                             continue;
                         }
 
+                        controller.TryCleanStaleNoneOrders();
                         controller.SavePositions();
                         controller.TryPaintPositions();
                         controller.TrySaveStopLimits();
@@ -73,7 +70,7 @@ namespace OsEngine.Journal.Internal
                 {
                     // ignore
                 }
-                await Task.Delay(1000);
+                await Task.Delay(3000);
             }
         }
 
@@ -160,6 +157,17 @@ namespace OsEngine.Journal.Internal
                 {
                     try
                     {
+                        string[] dealFields = deal.Split('#');
+
+                        // damaged record: too few fields, parsing by indexes is impossible
+                        if (dealFields.Length < 25)
+                        {
+                            SendNewLogMessage(
+                                "Skip damaged position record. Fields count: " + dealFields.Length,
+                                LogMessageType.System);
+                            continue;
+                        }
+
                         positions.Add(new Position());
                         positions[i].SetDealFromString(deal);
                         UpdateOpenPositionArray(positions[i], false);
@@ -455,12 +463,15 @@ namespace OsEngine.Journal.Internal
                 if (_deals == null)
                 {
                     _deals = new List<Position>();
-                    _deals.Add(newPosition);
                 }
-                else
+
+                if (_startProgram == StartProgram.IsOsTrader
+                    && _deals.Find(pos => pos != null && pos.Number == newPosition.Number) != null)
                 {
-                    _deals.Add(newPosition);
+                    return;
                 }
+
+                _deals.Add(newPosition);
 
                 for (int i = 0; i < _deals.Count; i++)
                 {
@@ -593,6 +604,13 @@ namespace OsEngine.Journal.Internal
 
             lock (_dealsLocker)
             {
+                if (string.IsNullOrEmpty(updateOrder.ParentOrderNumberMarket) == false)
+                {
+                    SetChildOrderInPositions(updateOrder);
+                    _needToSave = true;
+                    return;
+                }
+
                 for (int i = _deals.Count - 1; i > -1; i--)
                 {
                     Position curPosition = null;
@@ -728,6 +746,127 @@ namespace OsEngine.Journal.Internal
                 }
             }
             _needToSave = true;
+        }
+
+        private void SetChildOrderInPositions(Order updateOrder)
+        {
+            // вызывать только под lock (_dealsLocker).
+            // updateOrder - дочерний ордер активированного стоп-ордера
+
+            for (int i = _deals.Count - 1; i > -1; i--)
+            {
+                Position curPosition = _deals[i];
+
+                if (curPosition == null)
+                {
+                    continue;
+                }
+
+                // 1 ищем материнский ордер в позиции
+
+                Order parentOrder = null;
+                bool parentIsOpenOrder = false;
+
+                for (int j = 0; curPosition.OpenOrders != null && j < curPosition.OpenOrders.Count; j++)
+                {
+                    if (curPosition.OpenOrders[j] != null
+                        && curPosition.OpenOrders[j].NumberMarket == updateOrder.ParentOrderNumberMarket)
+                    {
+                        parentOrder = curPosition.OpenOrders[j];
+                        parentIsOpenOrder = true;
+                        break;
+                    }
+                }
+
+                if (parentOrder == null)
+                {
+                    for (int j = 0; curPosition.CloseOrders != null && j < curPosition.CloseOrders.Count; j++)
+                    {
+                        if (curPosition.CloseOrders[j] != null
+                            && curPosition.CloseOrders[j].NumberMarket == updateOrder.ParentOrderNumberMarket)
+                        {
+                            parentOrder = curPosition.CloseOrders[j];
+                            break;
+                        }
+                    }
+                }
+
+                if (parentOrder == null)
+                {
+                    continue;
+                }
+
+                // 2 ищем уже привязанного дочернего по ParentOrderNumberMarket:
+                // его NumberUser после рестарта приложения может быть новым
+
+                Order childInPosition = null;
+
+                for (int j = 0; curPosition.OpenOrders != null && j < curPosition.OpenOrders.Count; j++)
+                {
+                    if (curPosition.OpenOrders[j] != null
+                        && curPosition.OpenOrders[j].ParentOrderNumberMarket == updateOrder.ParentOrderNumberMarket)
+                    {
+                        childInPosition = curPosition.OpenOrders[j];
+                        break;
+                    }
+                }
+
+                if (childInPosition == null)
+                {
+                    for (int j = 0; curPosition.CloseOrders != null && j < curPosition.CloseOrders.Count; j++)
+                    {
+                        if (curPosition.CloseOrders[j] != null
+                            && curPosition.CloseOrders[j].ParentOrderNumberMarket == updateOrder.ParentOrderNumberMarket)
+                        {
+                            childInPosition = curPosition.CloseOrders[j];
+                            break;
+                        }
+                    }
+                }
+
+                PositionStateType positionState = curPosition.State;
+                decimal lastPosVolume = curPosition.OpenVolume;
+
+                if (childInPosition != null)
+                {   // дочерний уже в позиции. Обновляем
+                    childInPosition.NumberUser = updateOrder.NumberUser; // синхронизация номера для SetOrder
+                    curPosition.SetOrder(updateOrder);
+                }
+                else if (parentIsOpenOrder)
+                {
+                    curPosition.AddNewOpenOrder(updateOrder);
+                }
+                else
+                {
+                    curPosition.AddNewCloseOrder(updateOrder);
+                }
+
+                if (positionState != curPosition.State ||
+                    lastPosVolume != curPosition.OpenVolume)
+                {
+                    _openLongChanged = true;
+                    _openShortChanged = true;
+                    _closePositionChanged = true;
+                    _closeShortChanged = true;
+                    _closeLongChanged = true;
+
+                    UpdateOpenPositionArray(curPosition);
+                }
+
+                if (positionState != curPosition.State && PositionStateChangeEvent != null)
+                {
+                    PositionStateChangeEvent(curPosition);
+                }
+
+                if (lastPosVolume != curPosition.OpenVolume && PositionNetVolumeChangeEvent != null)
+                {
+                    PositionNetVolumeChangeEvent(curPosition);
+                }
+
+                ProcessPosition(curPosition);
+
+                return;
+            }
         }
 
         public bool SetNewTrade(MyTrade trade)
@@ -1258,6 +1397,173 @@ namespace OsEngine.Journal.Internal
 
         #endregion
 
+        #region Stale unconfirmed orders
+
+        // How long an order with State=None (never confirmed by the exchange) may keep the
+        // position active before it is dropped by the periodic sweep.
+        private static readonly TimeSpan _noneOrderStaleTimeout = TimeSpan.FromSeconds(180);
+
+        /// <summary>
+        /// Periodic sweep (called from WatcherHome): drop order records that were added to a
+        /// position but never confirmed by the exchange (State=None, empty NumberMarket) and
+        /// therefore keep the position stuck in Opening/Closing forever.
+        /// </summary>
+        private void TryCleanStaleNoneOrders()
+        {
+            DateTime cutoff = DateTime.Now - _noneOrderStaleTimeout;
+
+            List<Position> changed = new List<Position>();
+            List<Position> stateChanged = new List<Position>();
+
+            try
+            {
+                lock (_dealsLocker)
+                {
+                    if (_deals == null || _deals.Count == 0)
+                    {
+                        return;
+                    }
+
+                    for (int i = 0; i < _deals.Count; i++)
+                    {
+                        Position position = _deals[i];
+
+                        if (position == null)
+                        {
+                            continue;
+                        }
+
+                        PositionStateType stateBefore = position.State;
+
+                        bool removed = CheckOrdersForStale(position.OpenOrders, position, cutoff);
+                        removed |= CheckOrdersForStale(position.CloseOrders, position, cutoff);
+
+                        if (removed == false)
+                        {
+                            continue;
+                        }
+
+                        changed.Add(position);
+
+                        if (position.State != stateBefore)
+                        {
+                            stateChanged.Add(position);
+                        }
+                    }
+
+                    if (changed.Count == 0)
+                    {
+                        return;
+                    }
+
+                    for (int i = 0; i < changed.Count; i++)
+                    {
+                        UpdateOpenPositionArray(changed[i]);
+                    }
+
+                    _openLongChanged = true;
+                    _openShortChanged = true;
+                    _closePositionChanged = true;
+                    _closeLongChanged = true;
+                    _closeShortChanged = true;
+                    _needToSave = true;
+                }
+            }
+            catch (Exception error)
+            {
+                SendNewLogMessage("Stale order check error: " + error.ToString(), LogMessageType.Error);
+                return;
+            }
+
+            // Side effects outside the lock: UI queue and state change events.
+            for (int i = 0; i < changed.Count; i++)
+            {
+                ProcessPosition(changed[i]);
+            }
+
+            for (int i = 0; i < stateChanged.Count; i++)
+            {
+                if (PositionStateChangeEvent != null)
+                {
+                    PositionStateChangeEvent(stateChanged[i]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Remove stale unconfirmed (State=None, no market number) orders from one order list.
+        /// Returns true if at least one order was removed.
+        /// </summary>
+        private bool CheckOrdersForStale(List<Order> orders, Position position, DateTime cutoff)
+        {
+            if (orders == null || orders.Count == 0)
+            {
+                return false;
+            }
+
+            List<Order> snapshot = null;
+
+            try
+            {
+                snapshot = new List<Order>(orders);
+            }
+            catch (InvalidOperationException)
+            {
+                // IcebergMaker.Check() adds orders to the position without lock(_dealsLocker),
+                // so the list can change while it is being copied. Skip this position for now;
+                // it will be processed on the next WatcherHome pass (in 3 seconds).
+                // Not an error: transient, minimized by the lock above.
+                SendNewLogMessage("Stale order check skipped: position " + position.Number
+                    + " order list was modified concurrently", LogMessageType.System);
+                return false;
+            }
+
+            bool changed = false;
+
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                Order order = snapshot[i];
+
+                if (order == null)
+                {
+                    continue;
+                }
+
+                if (order.State != OrderStateType.None
+                    || string.IsNullOrEmpty(order.NumberMarket) == false)
+                {
+                    continue;
+                }
+
+                if (order.PositionAddTime == DateTime.MinValue)
+                {
+                    // Legacy/other adders have no timestamp, the age cannot be proven - do not remove.
+                    continue;
+                }
+
+                if (order.PositionAddTime >= cutoff)
+                {
+                    continue;
+                }
+
+                // RemoveOrder guards VolumeExecute/MyTrades and returns true only on a real removal,
+                // so we never log or mark the position when the order was actually kept.
+                if (position.RemoveOrder(order) == false)
+                {
+                    continue;
+                }
+
+                SendNewLogMessage("Stale unconfirmed order removed (State=None, no NumberMarket). Position "
+                    + position.Number + ", NumberUser " + order.NumberUser, LogMessageType.Error);
+
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        #endregion
+
         #region All positions
 
         public List<Position> AllPositions
@@ -1596,8 +1902,64 @@ namespace OsEngine.Journal.Internal
                     }
                 }
 
+                // saving the current selection so that the table does not jump to the top after redrawing
+                // сохраняем текущее выделение, чтобы таблица не прыгала в начало после перерисовки
+                int savedNumber = -1;
+                int savedScroll = -1;
+                int savedColumn = 0;
+
+                try
+                {
+                    if (grid.CurrentCell != null
+                    && grid.CurrentCell.RowIndex >= 0
+                    && grid.CurrentCell.RowIndex < grid.Rows.Count)
+                    {
+
+                        savedNumber = Convert.ToInt32(grid.Rows[grid.CurrentCell.RowIndex].Cells[0].Value);
+                        savedScroll = grid.FirstDisplayedScrollingRowIndex;
+                        savedColumn = grid.CurrentCell.ColumnIndex;
+
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 grid.Rows.Clear();
                 grid.Rows.AddRange(rows.ToArray());
+
+                // restore selection and scroll position
+                // восстанавливаем выделение и позицию скролла
+                if (savedNumber != -1)
+                {
+                    try
+                    {
+                        for (int i = 0; i < grid.Rows.Count; i++)
+                        {
+
+                            if (Convert.ToInt32(grid.Rows[i].Cells[0].Value) == savedNumber)
+                            {
+                                int col = savedColumn >= 0 && savedColumn < grid.Columns.Count
+                                    ? savedColumn
+                                    : 0;
+
+                                grid.CurrentCell = grid.Rows[i].Cells[col];
+
+                                if (savedScroll >= 0 && savedScroll < grid.Rows.Count)
+                                {
+                                    grid.FirstDisplayedScrollingRowIndex = savedScroll;
+                                }
+                                break;
+                            }
+
+                        }
+                    }
+                    catch
+                    {
+                        // ignore
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -2460,7 +2822,7 @@ namespace OsEngine.Journal.Internal
             }
             else if (type == LogMessageType.Error)
             {
-                System.Windows.MessageBox.Show(message);
+                Market.ServerMaster.SendNewLogMessage(message, type);
             }
         }
 

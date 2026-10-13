@@ -1,4 +1,4 @@
-﻿/*
+/*
  *Your rights to use the code are governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  *Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -560,6 +560,31 @@ namespace OsEngine.Market.Connectors
         }
 
         /// <summary>
+        /// does the server support Stop type orders (StopLimit/StopMarket). Support = true
+        /// </summary>
+        public bool StopOrdersIsSupport
+        {
+            get
+            {
+                if (ServerType == ServerType.Tester ||
+                    ServerType == ServerType.Optimizer ||
+                    ServerType == ServerType.None)
+                {
+                    return false;
+                }
+
+                IServerPermission serverPermission = ServerMaster.GetServerPermission(ServerType);
+
+                if (serverPermission == null)
+                {
+                    return false;
+                }
+
+                return serverPermission.StopOrdersIsSupport;
+            }
+        }
+
+        /// <summary>
         /// does the server support order price change. Support = true
         /// </summary>
         public bool IsCanChangeOrderPrice
@@ -649,6 +674,11 @@ namespace OsEngine.Market.Connectors
                 }
                 _eventsIsOn = value;
                 Save();
+
+                if (value)
+                {
+                    Reconnect();
+                }
             }
         }
         private bool _eventsIsOn = true;
@@ -2232,7 +2262,7 @@ namespace OsEngine.Market.Connectors
             }
             else if (type == LogMessageType.Error)
             { // if nobody is subscribed to us and there is an error in the log / если на нас никто не подписан и в логе ошибка
-                System.Windows.MessageBox.Show(message);
+                ServerMaster.SendNewLogMessage(message, LogMessageType.Error);
             }
         }
 

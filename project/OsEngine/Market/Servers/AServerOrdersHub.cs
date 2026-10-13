@@ -47,6 +47,7 @@ namespace OsEngine.Market.Servers
 
             Thread worker = new Thread(ThreadWorkerArea);
             worker.Name = "AServerOrdersHubThreadWorker";
+            worker.IsBackground = true;
             worker.Start();
 
         }
@@ -289,6 +290,12 @@ namespace OsEngine.Market.Servers
             for (int i = 0; i < _ordersActive.Count; i++)
             {
                 Order order = _ordersActive[i].Order;
+
+                if (order.TypeOrder == OrderPriceType.StopLimit
+                    || order.TypeOrder == OrderPriceType.StopMarket)
+                {
+                    continue;
+                }
 
                 if(order.TimeCreate != DateTime.MinValue 
                     && order.TimeCreate.AddDays(1) < DateTime.Now)
@@ -660,7 +667,9 @@ namespace OsEngine.Market.Servers
             {
                 CheckMarketOrder(order);
             }
-            else if (order.Order.TypeOrder == OrderPriceType.Limit)
+            else if (order.Order.TypeOrder == OrderPriceType.Limit
+                || order.Order.TypeOrder == OrderPriceType.StopLimit
+                || order.Order.TypeOrder == OrderPriceType.StopMarket)
             {
                 CheckLimitOrder(order);
             }

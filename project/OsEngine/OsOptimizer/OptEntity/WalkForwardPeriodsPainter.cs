@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -31,7 +31,7 @@ namespace OsEngine.OsOptimizer.OptEntity
                 }
                 catch (Exception error)
                 {
-                    System.Windows.MessageBox.Show(error.ToString());
+                    Market.ServerMaster.SendNewLogMessage(error.ToString(), Logging.LogMessageType.Error);
                 }
             }
 
@@ -58,7 +58,7 @@ namespace OsEngine.OsOptimizer.OptEntity
                 }
                 catch (Exception error)
                 {
-                    System.Windows.MessageBox.Show(error.ToString());
+                    Market.ServerMaster.SendNewLogMessage(error.ToString(), Logging.LogMessageType.Error);
                 }
             }
         }
@@ -108,7 +108,7 @@ namespace OsEngine.OsOptimizer.OptEntity
                 clusterSeries.YAxisType = AxisType.Primary;
                 clusterSeries.XAxisType = AxisType.Secondary;
                 clusterSeries.ChartArea = "Prime";
-                clusterSeries.ShadowOffset = 2;
+                clusterSeries.ShadowOffset = Themes.ThemeManager.GetChartCandleShadow();
                 clusterSeries.YValuesPerPoint = 2;
 
                 _chart.Series.Add(clusterSeries);
@@ -116,7 +116,7 @@ namespace OsEngine.OsOptimizer.OptEntity
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show(error.ToString());
+                Market.ServerMaster.SendNewLogMessage(error.ToString(), Logging.LogMessageType.Error);
             }
 
             return _chart;
@@ -189,7 +189,7 @@ namespace OsEngine.OsOptimizer.OptEntity
             }
             catch (Exception error)
             {
-                System.Windows.MessageBox.Show(error.ToString());
+                Market.ServerMaster.SendNewLogMessage(error.ToString(), Logging.LogMessageType.Error);
             }
         }
 

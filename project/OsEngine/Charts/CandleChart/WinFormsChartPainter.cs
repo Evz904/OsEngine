@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license http://o-s-a.net/doc/license_simple_engine.pdf
  *Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -480,7 +480,7 @@ ContextMenuStrip menu)
             {
                 // if no one's subscribed to us and there's a mistake
                 // если никто на нас не подписан и происходит ошибка
-                System.Windows.MessageBox.Show(message);
+                Market.ServerMaster.SendNewLogMessage(message, LogMessageType.Error);
             }
         }
 
@@ -672,7 +672,7 @@ ContextMenuStrip menu)
                 candleSeries.ChartType = SeriesChartType.Candlestick;
                 candleSeries.YAxisType = AxisType.Secondary;
                 candleSeries.ChartArea = "Prime";
-                candleSeries.ShadowOffset = 2;
+                candleSeries.ShadowOffset = Themes.ThemeManager.GetChartCandleShadow();
                 candleSeries.YValuesPerPoint = 4;
 
                 _chart.Series.Add(candleSeries);
@@ -856,7 +856,7 @@ ContextMenuStrip menu)
                     newSeries.ChartType = SeriesChartType.Candlestick;
                 }
 
-                newSeries.ShadowOffset = 2;
+                newSeries.ShadowOffset = Themes.ThemeManager.GetChartCandleShadow();
                 _chart.Series.Add(newSeries);
                 return newSeries.Name;
             }
@@ -1693,7 +1693,7 @@ ContextMenuStrip menu)
             candleSeries.ChartType = SeriesChartType.Candlestick;
             candleSeries.YAxisType = AxisType.Secondary;
             candleSeries.ChartArea = "Prime";
-            candleSeries.ShadowOffset = 2;
+            candleSeries.ShadowOffset = Themes.ThemeManager.GetChartCandleShadow();
             candleSeries.YValuesPerPoint = 4;
 
             for (int i = 0; i < history.Count; i++)
@@ -2056,16 +2056,24 @@ ContextMenuStrip menu)
                                 continue;
                             }
 
+                            if (curOrder.TypeOrder == OrderPriceType.StopLimit
+                                || curOrder.TypeOrder == OrderPriceType.StopMarket)
+                            {
+                                continue;
+                            }
+
                             Series lineSeries = new Series("Open_" + position.Number + j.ToString());
                             lineSeries.ChartType = SeriesChartType.Line;
                             lineSeries.YAxisType = AxisType.Secondary;
                             lineSeries.XAxisType = AxisType.Secondary;
                             lineSeries.ChartArea = "Prime";
-                            lineSeries.ShadowOffset = 1;
+                            lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                             lineSeries.YValuesPerPoint = 1;
 
-                            lineSeries.Points.AddXY(0, curOrder.Price);
-                            lineSeries.Points.AddXY(_myCandles.Count + 500, curOrder.Price);
+                            decimal priceToPaint = GetOrderPriceToPaint(curOrder);
+
+                            lineSeries.Points.AddXY(0, priceToPaint);
+                            lineSeries.Points.AddXY(_myCandles.Count + 500, priceToPaint);
 
                             if (curOrder.Side == Side.Buy)
                             {
@@ -2126,17 +2134,24 @@ ContextMenuStrip menu)
                                 continue;
                             }
 
+                            if (curOrder.TypeOrder == OrderPriceType.StopLimit
+                                || curOrder.TypeOrder == OrderPriceType.StopMarket)
+                            {
+                                continue;
+                            }
+
                             Series lineSeries = new Series("Close_" + position.Number + j.ToString());
                             lineSeries.ChartType = SeriesChartType.Line;
                             lineSeries.YAxisType = AxisType.Secondary;
                             lineSeries.XAxisType = AxisType.Secondary;
                             lineSeries.ChartArea = "Prime";
-                            lineSeries.ShadowOffset = 1;
+                            lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                             lineSeries.YValuesPerPoint = 1;
 
+                            decimal closePriceToPaint = GetOrderPriceToPaint(curOrder);
 
-                            lineSeries.Points.AddXY(0, curOrder.Price);
-                            lineSeries.Points.AddXY(_myCandles.Count + 500, curOrder.Price);
+                            lineSeries.Points.AddXY(0, closePriceToPaint);
+                            lineSeries.Points.AddXY(_myCandles.Count + 500, closePriceToPaint);
 
                             if (curOrder.Side == Side.Buy)
                             {
@@ -2189,7 +2204,7 @@ ContextMenuStrip menu)
                         lineSeries.YAxisType = AxisType.Secondary;
                         lineSeries.XAxisType = AxisType.Secondary;
                         lineSeries.ChartArea = "Prime";
-                        lineSeries.ShadowOffset = 1;
+                        lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                         lineSeries.YValuesPerPoint = 1;
 
 
@@ -2247,7 +2262,7 @@ ContextMenuStrip menu)
                         lineSeries.YAxisType = AxisType.Secondary;
                         lineSeries.XAxisType = AxisType.Secondary;
                         lineSeries.ChartArea = "Prime";
-                        lineSeries.ShadowOffset = 1;
+                        lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                         lineSeries.YValuesPerPoint = 1;
 
                         lineSeries.Points.AddXY(0, position.ProfitOrderRedLine);
@@ -2279,12 +2294,173 @@ ContextMenuStrip menu)
                     }
                 }
 
+                for (int i = 0; i < deals.Count; i++)
+                {
+                    // server stop orders (StopLimit/StopMarket)
+                    // серверные СТОП ОРДЕРА
+
+                    Position position = deals[i];
+
+                    if (position == null)
+                    {
+                        continue;
+                    }
+
+                    if (position.State != PositionStateType.Closing
+                        && position.State != PositionStateType.Opening
+                        && position.State != PositionStateType.Open
+                        && position.State != PositionStateType.ClosingFail)
+                    {
+                        continue;
+                    }
+
+                    if (position.CloseOrders != null)
+                    {
+                        for (int j = 0; j < position.CloseOrders.Count; j++)
+                        {
+                            Order curOrder = position.CloseOrders[j];
+
+                            if (curOrder == null)
+                            {
+                                continue;
+                            }
+
+                            if (curOrder.TypeOrder != OrderPriceType.StopLimit
+                                && curOrder.TypeOrder != OrderPriceType.StopMarket)
+                            {
+                                continue;
+                            }
+
+                            if (curOrder.State != OrderStateType.Active
+                                && curOrder.State != OrderStateType.Pending
+                                && curOrder.State != OrderStateType.None
+                                && curOrder.State != OrderStateType.Partial)
+                            {
+                                continue;
+                            }
+
+                            Series lineSeries = new Series("StopServer_" + position.Number + "_" + j.ToString());
+                            lineSeries.ChartType = SeriesChartType.StepLine;
+                            lineSeries.YAxisType = AxisType.Secondary;
+                            lineSeries.XAxisType = AxisType.Secondary;
+                            lineSeries.ChartArea = "Prime";
+                            lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
+                            lineSeries.YValuesPerPoint = 1;
+
+                            lineSeries.Points.AddXY(0, curOrder.StopPrice);
+                            lineSeries.Points.AddXY(_myCandles.Count + 500, curOrder.StopPrice);
+
+                            if (position.Direction == Side.Sell)
+                            {
+                                lineSeries.Color = Color.Green;
+                            }
+                            else
+                            {
+                                lineSeries.Color = Color.Red;
+                            }
+
+                            if (stopProfitOrderSeries == null)
+                            {
+                                stopProfitOrderSeries = new[] { lineSeries };
+                            }
+                            else
+                            {
+                                Series[] newLineSeries = new Series[stopProfitOrderSeries.Length + 1];
+                                for (int i2 = 0; i2 < stopProfitOrderSeries.Length; i2++)
+                                {
+                                    newLineSeries[i2] = stopProfitOrderSeries[i2];
+                                }
+                                newLineSeries[newLineSeries.Length - 1] = lineSeries;
+                                stopProfitOrderSeries = newLineSeries;
+                            }
+                        }
+                    }
+
+                    if (position.OpenOrders != null)
+                    {
+                        for (int j = 0; j < position.OpenOrders.Count; j++)
+                        {
+                            Order curOrder = position.OpenOrders[j];
+
+                            if (curOrder == null)
+                            {
+                                continue;
+                            }
+
+                            if (curOrder.TypeOrder != OrderPriceType.StopLimit
+                                && curOrder.TypeOrder != OrderPriceType.StopMarket)
+                            {
+                                continue;
+                            }
+
+                            if (curOrder.State != OrderStateType.Active
+                                && curOrder.State != OrderStateType.Pending
+                                && curOrder.State != OrderStateType.None
+                                && curOrder.State != OrderStateType.Partial)
+                            {
+                                continue;
+                            }
+
+                            Series lineSeries = new Series("StopServer_" + position.Number + "_o" + j.ToString());
+                            lineSeries.ChartType = SeriesChartType.StepLine;
+                            lineSeries.YAxisType = AxisType.Secondary;
+                            lineSeries.XAxisType = AxisType.Secondary;
+                            lineSeries.ChartArea = "Prime";
+                            lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
+                            lineSeries.YValuesPerPoint = 1;
+
+                            lineSeries.Points.AddXY(0, curOrder.StopPrice);
+                            lineSeries.Points.AddXY(_myCandles.Count + 500, curOrder.StopPrice);
+
+                            if (position.Direction == Side.Sell)
+                            {
+                                lineSeries.Color = Color.Green;
+                            }
+                            else
+                            {
+                                lineSeries.Color = Color.Red;
+                            }
+
+                            if (stopProfitOrderSeries == null)
+                            {
+                                stopProfitOrderSeries = new[] { lineSeries };
+                            }
+                            else
+                            {
+                                Series[] newLineSeries = new Series[stopProfitOrderSeries.Length + 1];
+                                for (int i2 = 0; i2 < stopProfitOrderSeries.Length; i2++)
+                                {
+                                    newLineSeries[i2] = stopProfitOrderSeries[i2];
+                                }
+                                newLineSeries[newLineSeries.Length - 1] = lineSeries;
+                                stopProfitOrderSeries = newLineSeries;
+                            }
+                        }
+                    }
+                }
+
                 PaintDealSafe(buySellSeries, stopProfitOrderSeries);
             }
             catch (Exception error)
             {
                 SendLogMessage(error.ToString(), LogMessageType.Error);
             }
+        }
+
+        private decimal GetOrderPriceToPaint(Order order)
+        {
+            // стоп-ордер до активации не имеет биржевой заявки.
+            // Рисуем его по цене активации. После активации в позиции
+            // появляется дочерний ордер, который рисуется по своей цене
+
+            if ((order.TypeOrder == OrderPriceType.StopLimit
+                || order.TypeOrder == OrderPriceType.StopMarket)
+                && order.StopPrice != 0)
+            {
+                return order.StopPrice;
+            }
+
+            return order.Price;
         }
 
         /// <summary>
@@ -2390,7 +2566,8 @@ ContextMenuStrip menu)
                     if (name == "Stop" ||
                         name == "Profit" ||
                         name == "Open" ||
-                        name == "Close")
+                        name == "Close" ||
+                        name == "StopServer")
                     {
                         bool isInArray = false;
 
@@ -2687,7 +2864,7 @@ ContextMenuStrip menu)
                 lineSeries.YAxisType = AxisType.Secondary;
                 lineSeries.XAxisType = AxisType.Secondary;
                 lineSeries.ChartArea = "Prime";
-                lineSeries.ShadowOffset = 1;
+                lineSeries.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                 lineSeries.YValuesPerPoint = 1;
 
                 lineSeries.Points.AddXY(0, curStop.PriceRedLine);
@@ -2950,7 +3127,7 @@ ContextMenuStrip menu)
             {
                 newSeries.Label = lineElement.Label;
                 newSeries.LabelForeColor = lineElement.LabelTextColor.Name == "0" ? Color.White : lineElement.LabelTextColor;
-                newSeries.Font = lineElement.Font ?? new Font("Arial", 7);
+                newSeries.Font = lineElement.Font ?? Themes.ThemeManager.GetChartLabelFont();
                 newSeries.LabelBackColor = lineElement.LabelBackColor.Name == "0" ? Color.Transparent : lineElement.LabelBackColor;
             }
 
@@ -3061,7 +3238,7 @@ ContextMenuStrip menu)
             {
                 newSeries.Label = lineElement.Label;
                 newSeries.LabelForeColor = lineElement.LabelTextColor.Name == "0" ? Color.White : lineElement.LabelTextColor;
-                newSeries.Font = lineElement.Font ?? new Font("Arial", 7);
+                newSeries.Font = lineElement.Font ?? Themes.ThemeManager.GetChartLabelFont();
                 newSeries.LabelBackColor = lineElement.LabelBackColor.Name == "0" ? Color.Transparent : lineElement.LabelBackColor;
             }
 
@@ -3179,7 +3356,7 @@ ContextMenuStrip menu)
             newSeries.MarkerSize = point.Size;
             newSeries.Label = point.Label;
             newSeries.LabelForeColor = point.LabelTextColor.Name == "0" ? Color.White : point.LabelTextColor;
-            newSeries.Font = point.Font ?? new Font("Arial", 7);
+            newSeries.Font = point.Font ?? Themes.ThemeManager.GetChartLabelFont();
             newSeries.LabelBackColor = point.LabelBackColor.Name == "0" ? Color.Transparent : point.LabelBackColor;
 
             newSeries.Points.AddXY(index, point.Y);
@@ -3289,7 +3466,7 @@ ContextMenuStrip menu)
             {
                 // устанавливаем шрифт для всей серии, но Label добавим позже только одной точке
                 newSeries.LabelForeColor = rectangle.LabelTextColor.Name == "0" ? Color.White : rectangle.LabelTextColor;
-                newSeries.Font = rectangle.Font ?? new Font("Arial", 7);
+                newSeries.Font = rectangle.Font ?? Themes.ThemeManager.GetChartLabelFont();
                 newSeries.LabelBackColor = rectangle.LabelBackColor.Name == "0" ? Color.Transparent : rectangle.LabelBackColor;
             }
 
@@ -4148,7 +4325,8 @@ ContextMenuStrip menu)
                         if (series[i].ChartPaintType == IndicatorChartPaintType.Line)
                         {
                             PaintLikeLine(
-                                series[i].Values, series[i].Color, indicator.Name + i,series[i].CanReBuildHistoricalValues);
+                                series[i].Values, series[i].Color, indicator.Name + i,series[i].CanReBuildHistoricalValues,
+                                series[i].LineWidth, series[i].ZeroIsGap);
                         }
                         else if (series[i].ChartPaintType == IndicatorChartPaintType.Column)
                         {
@@ -4349,7 +4527,7 @@ ContextMenuStrip menu)
                 series.MarkerStyle = MarkerStyle.Circle;
                 series.YAxisType = AxisType.Secondary;
                 series.ChartArea = myArea.Name;
-                series.ShadowOffset = 1;
+                series.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                 series.YValuesPerPoint = 1;
                 series.Color = color;
 
@@ -4431,7 +4609,8 @@ ContextMenuStrip menu)
         /// draw indicator as a line
         /// прорисовать индикатор как линию
         /// </summary>
-        private void PaintLikeLine(List<decimal> values, Color color, string nameSeries,bool fullReloadOnNewCandle)
+        private void PaintLikeLine(List<decimal> values, Color color, string nameSeries,bool fullReloadOnNewCandle,
+            int lineWidth = 1, bool zeroIsGap = false)
         {
             if (values == null ||
                 values.Count == 0)
@@ -4464,7 +4643,7 @@ ContextMenuStrip menu)
             {
                 // if only draw last point
                 // если прорисовываем только последнюю точку
-                PaintLikeLineLast(values, nameSeries, color);
+                PaintLikeLineLast(values, nameSeries, color, lineWidth, zeroIsGap);
             }
             else if (mySeries.Points.Count != 0 &&
                 values.Count == mySeries.Points.Count &&
@@ -4472,7 +4651,7 @@ ContextMenuStrip menu)
             {
                 // redraw last point
                 // перерисовываем последнюю точку
-                RePaintLikeLineLast(values, nameSeries, color);
+                RePaintLikeLineLast(values, nameSeries, color, lineWidth, zeroIsGap);
             }
             else
             {
@@ -4490,9 +4669,15 @@ ContextMenuStrip menu)
                 series.ChartType = SeriesChartType.Line;
                 series.YAxisType = AxisType.Secondary;
                 series.ChartArea = myArea.Name;
-                series.ShadowOffset = 1;
+                series.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                 series.YValuesPerPoint = 1;
                 series.Color = color;
+                series.BorderWidth = lineWidth;
+
+                if (zeroIsGap)
+                {
+                    series.EmptyPointStyle.Color = Color.Transparent;
+                }
 
                 bool isStarted = false;
 
@@ -4501,7 +4686,7 @@ ContextMenuStrip menu)
                     // series.Points.AddXY(i, array[i]);
                     var point = new DataPoint(i, (double)array[i]);
 
-                    if (array[i] == 0 && isStarted == false) 
+                    if (array[i] == 0 && (isStarted == false || zeroIsGap))
                     {
                         point.IsEmpty = true;
                     }
@@ -4546,17 +4731,25 @@ ContextMenuStrip menu)
         /// draw indicator as a line, last element
         /// прорисовать индикатор как линию, последний элемент
         /// </summary>
-        private void PaintLikeLineLast(List<decimal> values, string nameSeries, Color color)
+        private void PaintLikeLineLast(List<decimal> values, string nameSeries, Color color,
+            int lineWidth = 1, bool zeroIsGap = false)
         {
             Series mySeries = FindSeriesByNameSafe(nameSeries);
             mySeries.Color = color;
+            mySeries.BorderWidth = lineWidth;
+
+            if (zeroIsGap)
+            {
+                mySeries.EmptyPointStyle.Color = Color.Transparent;
+            }
+
             decimal lastPoint = values[values.Count - 1];
 
             // mySeries.Points.AddXY(mySeries.Points.Count, lastPoint);
 
             var point = new DataPoint(mySeries.Points.Count, (double)lastPoint);
 
-            if (lastPoint == 0 && values.FindIndex(v => v != 0) == -1)
+            if (lastPoint == 0 && (zeroIsGap || values.FindIndex(v => v != 0) == -1))
             {
                 point.IsEmpty = true;
             }
@@ -4569,14 +4762,16 @@ ContextMenuStrip menu)
         /// redraw indicator as a line,last element
         /// перерисовать индикатор как линию, последний элемент
         /// </summary>
-        private void RePaintLikeLineLast(List<decimal> values, string nameSeries, Color color)
+        private void RePaintLikeLineLast(List<decimal> values, string nameSeries, Color color,
+            int lineWidth = 1, bool zeroIsGap = false)
         {
             Series mySeries = FindSeriesByNameSafe(nameSeries);
             mySeries.Color = color;
+            mySeries.BorderWidth = lineWidth;
             decimal lastPoint = Convert.ToDecimal(values[values.Count - 1]);
             mySeries.Points[mySeries.Points.Count - 1].YValues = new[] { Convert.ToDouble(lastPoint) };
 
-            if (lastPoint == 0 && values.FindIndex(v => v != 0) == -1)
+            if (lastPoint == 0 && (zeroIsGap || values.FindIndex(v => v != 0) == -1))
             {
                 mySeries.Points[mySeries.Points.Count - 1].IsEmpty = true;
             }
@@ -4646,7 +4841,7 @@ ContextMenuStrip menu)
                 series.ChartType = SeriesChartType.Column;
                 series.YAxisType = AxisType.Secondary;
                 series.ChartArea = myArea.Name;
-                series.ShadowOffset = 1;
+                series.ShadowOffset = Themes.ThemeManager.GetChartIndicatorShadow();
                 series.YValuesPerPoint = 1;
                 series.Color = colorUp;
 

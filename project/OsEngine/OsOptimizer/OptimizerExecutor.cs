@@ -4,7 +4,6 @@
 */
 
 using OsEngine.Entity;
-using OsEngine.Entity.SyntheticBondEntity;
 using OsEngine.Indicators;
 using OsEngine.Language;
 using OsEngine.Logging;
@@ -15,7 +14,6 @@ using OsEngine.Market.Servers.Tester;
 using OsEngine.OsOptimizer.OptimizerEntity;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Tab;
-using OsEngine.OsTrader.Panels.Tab.SyntheticBondTab;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -40,6 +38,12 @@ namespace OsEngine.OsOptimizer
 
         public bool Start(List<bool> parametersOn, List<IIStrategyParameter> parameters)
         {
+            if (parameters == null || parametersOn == null)
+            {
+                SendLogMessage(OsLocalization.Optimizer.Message44, LogMessageType.System);
+                return false;
+            }
+
             if (_primeThreadWorker != null)
             {
                 SendLogMessage(OsLocalization.Optimizer.Message1, LogMessageType.System);
@@ -47,6 +51,9 @@ namespace OsEngine.OsOptimizer
             }
             _parametersOn = parametersOn;
             _parameters = parameters;
+
+            // чистим кэш индикаторов при любом старте оптимизации, не только из UI
+            AindicatorCacheServer.Clear();
 
             SendLogMessage(OsLocalization.Optimizer.Message2, LogMessageType.System);
 
@@ -182,6 +189,17 @@ namespace OsEngine.OsOptimizer
         }
 
         private Thread _primeThreadWorker;
+
+        /// <summary>
+        /// идёт ли сейчас оптимизация
+        /// </summary>
+        public bool IsRunning
+        {
+            get
+            {
+                return _primeThreadWorker != null;
+            }
+        }
 
         public int BotCountOneFaze(List<IIStrategyParameter> parameters, List<bool> parametersOn)
         {
@@ -699,34 +717,40 @@ namespace OsEngine.OsOptimizer
                 }
                 else if (parametersToCopy[i].Type == StrategyParameterType.Int)
                 {
-                    newParam = new StrategyParameterInt(parametersToCopy[i].Name,
-                        ((StrategyParameterInt)parametersToCopy[i]).ValueIntDefolt,
-                        ((StrategyParameterInt)parametersToCopy[i]).ValueIntStart,
-                        ((StrategyParameterInt)parametersToCopy[i]).ValueIntStop,
-                        ((StrategyParameterInt)parametersToCopy[i]).ValueIntStep);
-                    ((StrategyParameterInt)newParam).ValueInt = ((StrategyParameterInt)parametersToCopy[i]).ValueIntStart;
-                    ((StrategyParameterInt)newParam).StepType = ((StrategyParameterInt)parametersToCopy[i]).StepType;
+                    StrategyParameterInt source = (StrategyParameterInt)parametersToCopy[i];
+
+                    // the constructor throws on start > stop, so clamp the stop up to the start
+                    int stop = source.ValueIntStart > source.ValueIntStop ? source.ValueIntStart : source.ValueIntStop;
+
+                    newParam = new StrategyParameterInt(source.Name, source.ValueIntDefolt,
+                        source.ValueIntStart, stop, source.ValueIntStep);
+                    ((StrategyParameterInt)newParam).ValueInt = source.ValueIntStart;
+                    ((StrategyParameterInt)newParam).StepType = source.StepType;
                 }
                 else if (parametersToCopy[i].Type == StrategyParameterType.Decimal)
                 {
-                    newParam = new StrategyParameterDecimal(parametersToCopy[i].Name,
-                        ((StrategyParameterDecimal)parametersToCopy[i]).ValueDecimalDefolt,
-                        ((StrategyParameterDecimal)parametersToCopy[i]).ValueDecimalStart,
-                        ((StrategyParameterDecimal)parametersToCopy[i]).ValueDecimalStop,
-                        ((StrategyParameterDecimal)parametersToCopy[i]).ValueDecimalStep);
-                    ((StrategyParameterDecimal)newParam).ValueDecimal = ((StrategyParameterDecimal)parametersToCopy[i]).ValueDecimalStart;
-                    ((StrategyParameterDecimal)newParam).StepType = ((StrategyParameterDecimal)parametersToCopy[i]).StepType;
+                    StrategyParameterDecimal source = (StrategyParameterDecimal)parametersToCopy[i];
+
+                    // the constructor throws on start > stop, so clamp the stop up to the start
+                    decimal stop = source.ValueDecimalStart > source.ValueDecimalStop ? source.ValueDecimalStart : source.ValueDecimalStop;
+
+                    newParam = new StrategyParameterDecimal(source.Name, source.ValueDecimalDefolt,
+                        source.ValueDecimalStart, stop, source.ValueDecimalStep);
+                    ((StrategyParameterDecimal)newParam).ValueDecimal = source.ValueDecimalStart;
+                    ((StrategyParameterDecimal)newParam).StepType = source.StepType;
                 }
                 else if (parametersToCopy[i].Type == StrategyParameterType.DecimalCheckBox)
                 {
-                    newParam = new StrategyParameterDecimalCheckBox(parametersToCopy[i].Name,
-                        ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).ValueDecimalDefolt,
-                        ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).ValueDecimalStart,
-                        ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).ValueDecimalStop,
-                        ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).ValueDecimalStep,
-                        Convert.ToBoolean(((StrategyParameterDecimalCheckBox)parametersToCopy[i]).CheckState));
-                    ((StrategyParameterDecimalCheckBox)newParam).ValueDecimal = ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).ValueDecimalStart;
-                    ((StrategyParameterDecimalCheckBox)newParam).StepType = ((StrategyParameterDecimalCheckBox)parametersToCopy[i]).StepType;
+                    StrategyParameterDecimalCheckBox source = (StrategyParameterDecimalCheckBox)parametersToCopy[i];
+
+                    // the constructor throws on start > stop, so clamp the stop up to the start
+                    decimal stop = source.ValueDecimalStart > source.ValueDecimalStop ? source.ValueDecimalStart : source.ValueDecimalStop;
+
+                    newParam = new StrategyParameterDecimalCheckBox(source.Name, source.ValueDecimalDefolt,
+                        source.ValueDecimalStart, stop, source.ValueDecimalStep,
+                        Convert.ToBoolean(source.CheckState));
+                    ((StrategyParameterDecimalCheckBox)newParam).ValueDecimal = source.ValueDecimalStart;
+                    ((StrategyParameterDecimalCheckBox)newParam).StepType = source.StepType;
                 }
 
                 newParameters.Add(newParam);
@@ -854,135 +878,116 @@ namespace OsEngine.OsOptimizer
             server.TypeTesterData = _master.Storage.TypeTesterData;
             server.TestingProgressChangeEvent += server_TestingProgressChangeEvent;
 
+            if (_master.BotToTest == null)
+            {
+                SendLogMessage("Optimizer. Bot to test is null. Data sources skipped", LogMessageType.Error);
+                return server;
+            }
+
             List<IIBotTab> sources = _master.BotToTest.GetTabs();
+
+            if (sources == null)
+            {
+                SendLogMessage("Optimizer. Data sources list is null. Sources skipped", LogMessageType.Error);
+                return server;
+            }
 
             for (int i = 0; i < sources.Count; i++)
             {
-                if (sources[i].TabType == BotTabType.Simple)
-                {// BotTabSimple
-                    BotTabSimple simple = (BotTabSimple)sources[i];
-
-                    Security secToStart =
-                    _master.Storage.Securities.Find(s => s.Name == simple.Connector.SecurityName);
-
-                    server.GetDataToSecurity(secToStart, simple.Connector.TimeFrame, report.Faze.TimeStart,
-                        report.Faze.TimeEnd);
-                }
-                else if (sources[i].TabType == BotTabType.Index)
-                {// BotTabIndex
-                    BotTabIndex index = (BotTabIndex)sources[i];
-
-                    for (int i2 = 0; i2 < index.Tabs.Count; i2++)
+                try
+                {
+                    if (sources[i] == null)
                     {
-                        Security secToStart =
-                          _master.Storage.Securities.Find(s => s.Name == index.Tabs[i2].SecurityName);
-
-                        server.GetDataToSecurity(secToStart, index.Tabs[i2].TimeFrame, report.Faze.TimeStart,
-                            report.Faze.TimeEnd);
+                        SendLogMessage("Optimizer. Bot tab is null. Source skipped", LogMessageType.Error);
+                        continue;
                     }
-                }
-                else if (sources[i].TabType == BotTabType.Screener)
-                {// BotTabScreener
-                    BotTabScreener screener = (BotTabScreener)sources[i];
 
-                    for (int i2 = 0; i2 < screener.Tabs.Count; i2++)
-                    {
-                        Security secToStart =
-                          _master.Storage.Securities.Find(s => s.Name == screener.Tabs[i2].Connector.SecurityName);
+                    if (sources[i].TabType == BotTabType.Simple)
+                    {// BotTabSimple
+                        BotTabSimple simple = (BotTabSimple)sources[i];
 
-                        server.GetDataToSecurity(secToStart, screener.Tabs[i2].Connector.TimeFrame, report.Faze.TimeStart,
-                            report.Faze.TimeEnd);
-                    }
-                }
-                else if (sources[i].TabType == BotTabType.SyntheticBond)
-                {// BotTabSyntheticBond
-                    BotTabSyntheticBond botTabSyntheticBond = (BotTabSyntheticBond)sources[i];
-
-                    for (int i2 = 0; i2 < botTabSyntheticBond.SyntheticBondSeries.Count; i2++)
-                    {
-                        SyntheticBondSeries series = botTabSyntheticBond.SyntheticBondSeries[i2];
-
-                        if (series.PatternBaseTab != null
-                            && series.PatternBaseTab.Connector != null
-                            && series.PatternBaseTab.Connector.SecurityName != null)
+                        if (simple.Connector == null)
                         {
-                            Security baseSec = FindSecurityByName(series.PatternBaseTab.Connector.SecurityName);
-
-                            if (baseSec != null)
-                            {
-                                server.GetDataToSecurity(baseSec, series.PatternBaseTab.Connector.TimeFrame,
-                                    report.Faze.TimeStart, report.Faze.TimeEnd);
-                            }
-                        }
-
-                        if (series.SyntheticBonds == null)
-                        {
+                            SendLogMessage("Optimizer. Bot tab without connector. Source skipped", LogMessageType.Error);
                             continue;
                         }
 
-                        for (int i3 = 0; i3 < series.SyntheticBonds.Count; i3++)
+                        Security secToStart =
+                        _master.Storage.Securities.Find(s => s.Name == simple.Connector.SecurityName);
+
+                        if (secToStart == null)
                         {
-                            SyntheticBond syntheticBond = series.SyntheticBonds[i3];
+                            SendLogMessage("Optimizer. Security not found in storage. Source skipped", LogMessageType.Error);
+                            continue;
+                        }
 
-                            if (syntheticBond.PatternFuturesTab != null
-                                && syntheticBond.PatternFuturesTab.Connector != null
-                                && syntheticBond.PatternFuturesTab.Connector.SecurityName != null)
+                        server.GetDataToSecurity(secToStart, simple.Connector.TimeFrame, report.Faze.TimeStart,
+                            report.Faze.TimeEnd);
+                    }
+                    else if (sources[i].TabType == BotTabType.Index)
+                    {// BotTabIndex
+                        BotTabIndex index = (BotTabIndex)sources[i];
+
+                        for (int i2 = 0; i2 < index.Tabs.Count; i2++)
+                        {
+                            if (index.Tabs[i2] == null)
                             {
-                                Security futSec = FindSecurityByName(syntheticBond.PatternFuturesTab.Connector.SecurityName);
-
-                                if (futSec != null)
-                                {
-                                    server.GetDataToSecurity(futSec, syntheticBond.PatternFuturesTab.Connector.TimeFrame,
-                                        report.Faze.TimeStart, report.Faze.TimeEnd);
-                                }
+                                SendLogMessage("Optimizer. Index tab is null. Source skipped", LogMessageType.Error);
+                                continue;
                             }
 
-                            if (syntheticBond.BaseRationingSecurity != null
-                                && syntheticBond.BaseRationingSecurity.Connector != null
-                                && syntheticBond.BaseRationingSecurity.Connector.SecurityName != null)
-                            {
-                                Security rationingSec = FindSecurityByName(syntheticBond.BaseRationingSecurity.Connector.SecurityName);
+                            Security secToStart =
+                              _master.Storage.Securities.Find(s => s.Name == index.Tabs[i2].SecurityName);
 
-                                if (rationingSec != null)
-                                {
-                                    server.GetDataToSecurity(rationingSec, syntheticBond.BaseRationingSecurity.Connector.TimeFrame,
-                                        report.Faze.TimeStart, report.Faze.TimeEnd);
-                                }
+                            if (secToStart == null)
+                            {
+                                SendLogMessage("Optimizer. Security not found in storage. Source skipped", LogMessageType.Error);
+                                continue;
                             }
 
-                            if (syntheticBond.FuturesRationingSecurity != null
-                                && syntheticBond.FuturesRationingSecurity.Connector != null
-                                && syntheticBond.FuturesRationingSecurity.Connector.SecurityName != null)
-                            {
-                                Security rationingSec = FindSecurityByName(syntheticBond.FuturesRationingSecurity.Connector.SecurityName);
-
-                                if (rationingSec != null)
-                                {
-                                    server.GetDataToSecurity(rationingSec, syntheticBond.FuturesRationingSecurity.Connector.TimeFrame,
-                                        report.Faze.TimeStart, report.Faze.TimeEnd);
-                                }
-                            }
+                            server.GetDataToSecurity(secToStart, index.Tabs[i2].TimeFrame, report.Faze.TimeStart,
+                                report.Faze.TimeEnd);
                         }
                     }
+                    else if (sources[i].TabType == BotTabType.Screener)
+                    {// BotTabScreener
+                        BotTabScreener screener = (BotTabScreener)sources[i];
+
+                        for (int i2 = 0; i2 < screener.Tabs.Count; i2++)
+                        {
+                            if (screener.Tabs[i2] == null)
+                            {
+                                SendLogMessage("Optimizer. Screener tab is null. Source skipped", LogMessageType.Error);
+                                continue;
+                            }
+
+                            if (screener.Tabs[i2].Connector == null)
+                            {
+                                SendLogMessage("Optimizer. Screener tab without connector. Source skipped", LogMessageType.Error);
+                                continue;
+                            }
+
+                            Security secToStart =
+                              _master.Storage.Securities.Find(s => s.Name == screener.Tabs[i2].Connector.SecurityName);
+
+                            if (secToStart == null)
+                            {
+                                SendLogMessage("Optimizer. Security not found in storage. Source skipped", LogMessageType.Error);
+                                continue;
+                            }
+
+                            server.GetDataToSecurity(secToStart, screener.Tabs[i2].Connector.TimeFrame, report.Faze.TimeStart,
+                                report.Faze.TimeEnd);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SendLogMessage("Optimizer. Error while preparing server data: " + ex.ToString(), LogMessageType.Error);
                 }
             }
 
             return server;
-        }
-
-        private Security FindSecurityByName(string securityName)
-        {
-            List<Security> securities = _master.Storage.Securities;
-
-            for (int i = 0; i < securities.Count; i++)
-            {
-                if (securities[i].Name == securityName)
-                {
-                    return securities[i];
-                }
-            }
-
-            return null;
         }
 
         private BotPanel CreateNewBot(string botName,
@@ -1009,6 +1014,8 @@ namespace OsEngine.OsOptimizer
 
             try
             {
+                server.MyRobot = bot;
+
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     IIStrategyParameter par = null;
@@ -1373,112 +1380,132 @@ namespace OsEngine.OsOptimizer
 
         private void server_TestingEndEvent(int serverNum, TimeSpan testTime)
         {
-            TestingProgressChangeEvent?.Invoke(100, 100, serverNum);
-            _countAllServersEndTest++;
-            PrimeProgressChangeEvent?.Invoke(_countAllServersEndTest, _countAllServersMax);
-
-            BotPanel bot = null;
-            OptimizerServer server = null;
-
-            lock (_serverRemoveLocker)
+            try
             {
-                for (int i = 0; i < _botsInTest.Count; i++)
-                {
-                    BotPanel curBot = _botsInTest[i];
+                TestingProgressChangeEvent?.Invoke(100, 100, serverNum);
+                _countAllServersEndTest++;
+                PrimeProgressChangeEvent?.Invoke(_countAllServersEndTest, _countAllServersMax);
 
-                    if (curBot != null
-                        && curBot.TabsSimple != null
-                        && curBot.TabsSimple.Count > 0
-                        && curBot.TabsSimple[0].Connector != null
-                        && curBot.TabsSimple[0].Connector.ServerUid == serverNum)
+                BotPanel bot = null;
+                OptimizerServer server = null;
+
+                lock (_serverRemoveLocker)
+                {
+                    for (int i = 0; i < _botsInTest.Count; i++)
                     {
-                        bot = curBot;
-                        _botsInTest.RemoveAt(i);
-                        break;
+                        BotPanel curBot = _botsInTest[i];
+
+                        if (curBot != null
+                            && curBot.TabsSimple != null
+                            && curBot.TabsSimple.Count > 0
+                            && curBot.TabsSimple[0].Connector != null
+                            && curBot.TabsSimple[0].Connector.ServerUid == serverNum)
+                        {
+                            bot = curBot;
+                            _botsInTest.RemoveAt(i);
+                            break;
+                        }
+                        else if (curBot != null
+                            && curBot.TabsScreener != null
+                            && curBot.TabsScreener.Count > 0
+                            && curBot.TabsScreener[0].ServerUid == serverNum)
+                        {
+                            bot = curBot;
+                            _botsInTest.RemoveAt(i);
+                            break;
+                        }
                     }
-                    else if (curBot != null
-                        && curBot.TabsScreener != null
-                        && curBot.TabsScreener.Count > 0
-                        && curBot.TabsScreener[0].ServerUid == serverNum)
+
+                    if (bot != null)
                     {
-                        bot = curBot;
-                        _botsInTest.RemoveAt(i);
-                        break;
+                        try
+                        {
+                            ReportsToFazes[ReportsToFazes.Count - 1].Load(bot);
+                        }
+                        catch (Exception ex)
+                        {
+                            SendLogMessage($"TestingEndEvent. Server {serverNum}. Report load failed: {ex}", LogMessageType.Error);
+                        }
                     }
-                    else if (curBot != null
-                        && curBot.TabsSyntheticBond != null
-                        && curBot.TabsSyntheticBond.Count > 0
-                        && curBot.TabsSyntheticBond[0].SyntheticBondSeries.Count > 0
-                        && curBot.TabsSyntheticBond[0].SyntheticBondSeries[0].PatternBaseTab != null
-                        && curBot.TabsSyntheticBond[0].SyntheticBondSeries[0].PatternBaseTab.Connector != null
-                        && curBot.TabsSyntheticBond[0].SyntheticBondSeries[0].PatternBaseTab.Connector.ServerUid == serverNum)
+                    else
                     {
-                        bot = curBot;
-                        _botsInTest.RemoveAt(i);
-                        break;
+                        SendLogMessage($"TestingEndEvent. Server {serverNum}. Bot not found in _botsInTest ({_botsInTest.Count} left)", LogMessageType.Error);
+                    }
+
+                    for (int i = 0; i < _servers.Count; i++)
+                    {
+                        if (_servers[i].NumberServer == serverNum)
+                        {
+                            _servers[i].TestingEndEvent -= server_TestingEndEvent;
+                            _servers[i].TestingProgressChangeEvent -= server_TestingProgressChangeEvent;
+                            server = _servers[i];
+                            _servers.RemoveAt(i);
+                            break;
+                        }
+                    }
+
+                    _testBotsTime.Add(testTime);
+
+                    if (_testBotsTime.Count % 20 == 0)
+                    {
+                        TimeSpan allTime = TimeSpan.Zero;
+
+                        for (int i = 0; i < _testBotsTime.Count; i++)
+                        {
+                            allTime = TimeSpan.FromMilliseconds(allTime.TotalMilliseconds + _testBotsTime[i].TotalMilliseconds + 1000);
+                        }
+
+                        decimal secondsOnOneTest = Convert.ToDecimal(allTime.TotalSeconds / _testBotsTime.Count);
+
+                        decimal secondsToEndAllTests = (_countAllServersMax - _testBotsTime.Count) * secondsOnOneTest;
+
+                        decimal secondsToEndDivideThreads = secondsToEndAllTests / _master.ThreadsCount;
+
+                        TimeSpan timeToEnd = TimeSpan.FromSeconds(Convert.ToInt32(secondsToEndDivideThreads));
+
+                        if (TimeToEndChangeEvent != null
+                            && timeToEnd.TotalSeconds != 0)
+                        {
+                            TimeToEndChangeEvent(timeToEnd);
+                        }
                     }
                 }
 
                 if (bot != null)
                 {
-                    ReportsToFazes[ReportsToFazes.Count - 1].Load(bot);
+                    try
+                    {
+                        // грузим индикаторы робота в кэш сервер
+                        AindicatorCacheServer.TrySetIndicatorValuesInCache(bot);
+                    }
+                    catch (Exception ex)
+                    {
+                        SendLogMessage($"TestingEndEvent. Server {serverNum}. Indicator cache failed: {ex.Message}", LogMessageType.Error);
+                    }
                 }
 
-                for (int i = 0; i < _servers.Count; i++)
+                if (bot != null)
                 {
-                    if (_servers[i].NumberServer == serverNum)
+                    try
                     {
-                        _servers[i].TestingEndEvent -= server_TestingEndEvent;
-                        _servers[i].TestingProgressChangeEvent -= server_TestingProgressChangeEvent;
-                        server = _servers[i];
-                        _servers.RemoveAt(i);
-                        break;
+                        // уничтожаем робота
+                        bot.Clear();
+                        bot.Delete();
+                    }
+                    catch (Exception ex)
+                    {
+                        SendLogMessage($"TestingEndEvent. Server {serverNum}. Bot delete failed: {ex.Message}", LogMessageType.Error);
                     }
                 }
 
-                _testBotsTime.Add(testTime);
-
-                if (_testBotsTime.Count % 20 == 0)
+                if (server != null)
                 {
-                    TimeSpan allTime = TimeSpan.Zero;
-
-                    for (int i = 0; i < _testBotsTime.Count; i++)
-                    {
-                        allTime = TimeSpan.FromMilliseconds(allTime.TotalMilliseconds + _testBotsTime[i].TotalMilliseconds + 1000);
-                    }
-
-                    decimal secondsOnOneTest = Convert.ToDecimal(allTime.TotalSeconds / _testBotsTime.Count);
-
-                    decimal secondsToEndAllTests = (_countAllServersMax - _testBotsTime.Count) * secondsOnOneTest;
-
-                    decimal secondsToEndDivideThreads = secondsToEndAllTests / _master.ThreadsCount;
-
-                    TimeSpan timeToEnd = TimeSpan.FromSeconds(Convert.ToInt32(secondsToEndDivideThreads));
-
-                    if (TimeToEndChangeEvent != null
-                        && timeToEnd.TotalSeconds != 0)
-                    {
-                        TimeToEndChangeEvent(timeToEnd);
-                    }
+                    ServerMaster.RemoveOptimizerServer(server);
                 }
             }
-
-            if (bot != null)
+            catch (Exception ex)
             {
-                // грузим индикаторы робота в кэш сервер
-                AindicatorCacheServer.TrySetIndicatorValuesInCache(bot);
-            }
-
-            if (bot != null)
-            {
-                // уничтожаем робота
-                bot.Clear();
-                bot.Delete();
-            }
-
-            if (server != null)
-            {
-                ServerMaster.RemoveOptimizerServer(server);
+                SendLogMessage($"TestingEndEvent. Server {serverNum} FAILED: {ex}", LogMessageType.Error);
             }
         }
 

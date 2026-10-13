@@ -193,6 +193,8 @@ namespace OsEngine.Market.Servers.TData
             _candlesArchivesInfoFut.Clear();
             _candlesArchivesInfoSpot.Clear();
             _candlesArchivesInfoBond.Clear();
+            _candlesArchivesInfoEtf.Clear();
+
             _datesArchives.Clear();
 
             DisposeHttpClient();
@@ -269,6 +271,8 @@ namespace OsEngine.Market.Servers.TData
 
         private Dictionary<string, TSecurityResponse> _candlesArchivesInfoBond = [];
 
+        private Dictionary<string, TSecurityResponse> _candlesArchivesInfoEtf = [];
+
         private DateTime _startTimeCandleArchive = new DateTime(2018, 03, 07);
 
         private DateTime _startTimeTradeArchive = new DateTime(2018, 12, 19);
@@ -304,10 +308,11 @@ namespace OsEngine.Market.Servers.TData
                 GetCurrencySecurities();
 
                 GetBondSecurities();
+
+                GetEtfSecurities();
             }
             catch (Exception ex)
             {
-
                 SendLogMessage($"Securities downloading error. Error: {ex.Message}", LogMessageType.Error);
             }
 
@@ -472,6 +477,67 @@ namespace OsEngine.Market.Servers.TData
                         _candlesArchivesInfoFut = root.Instruments;
 
                         CombineDataBySecurities(_candlesArchivesInfoFut, futSecCandles);
+                    }
+                }
+            }
+            else
+            {
+                SendLogMessage($"Securities futures downloading error", LogMessageType.Error);
+            }
+        }
+
+        private void GetEtfSecurities()
+        {
+            string response = GetStringRequest("/trades-instruments-index/instrument-type/etf");
+
+            if (response != null)
+            {
+                RootResponse root = System.Text.Json.JsonSerializer.Deserialize<RootResponse>(response);
+
+                Dictionary<string, TSecurityResponse>.Enumerator enumerator = root.Instruments.GetEnumerator();
+
+                while (enumerator.MoveNext())
+                {
+                    if (enumerator.Current.Value.ClassCode != "TQTF" && enumerator.Current.Value.ClassCode != "TQIF")
+                        root.Instruments.Remove(enumerator.Current.Key);
+                }
+
+                List<TSecurityResponse> etfInstruments = new List<TSecurityResponse>(root.Instruments.Values);
+
+                for (int i = 0; i < etfInstruments.Count; i++)
+                {
+                    TSecurityResponse item = etfInstruments[i];
+
+                    Security newSecurity = new Security();
+
+                    newSecurity.Exchange = "MOEX";
+                    newSecurity.Name = item.Ticker;
+                    newSecurity.NameFull = item.Name;
+                    newSecurity.NameClass = item.ClassCode;
+                    newSecurity.NameId = item.Ticker;
+                    newSecurity.SecurityType = SecurityType.Fund;
+                    newSecurity.PriceStep = 0;
+                    newSecurity.PriceStepCost = 0;
+                    newSecurity.Lot = 1;
+
+                    _securities.Add(newSecurity);
+                }
+
+                // получить информацию по свечным архивам
+                string candlesInfoResponse = GetStringRequest("/candles-instruments-index/instrument-type/etf");
+
+                if (candlesInfoResponse != null)
+                {
+                    RootResponse candlesRoot = System.Text.Json.JsonSerializer.Deserialize<RootResponse>(candlesInfoResponse);
+
+                    List<TSecurityResponse> etfSecCandles = new List<TSecurityResponse>(candlesRoot.Instruments.Values)
+                        .FindAll(instrument => instrument.ClassCode == "TQTF" || instrument.ClassCode == "TQIF");
+
+                    if (etfSecCandles.Count > 0)
+                    {
+                        _candlesArchivesInfoEtf = root.Instruments;
+
+                        CombineDataBySecurities(_candlesArchivesInfoEtf, etfSecCandles);
                     }
                 }
             }
@@ -697,6 +763,14 @@ namespace OsEngine.Market.Servers.TData
                         return null;
                     }
                 }
+                else if (security.SecurityType == SecurityType.Fund)
+                {
+                    if (!_candlesArchivesInfoEtf.TryGetValue(secKey, out securityCandlesInfo))
+                    {
+                        SendLogMessage($"No archive with candles for {secKey}", LogMessageType.System);
+                        return null;
+                    }
+                }
 
                 // получить url архива
                 List<Archive> urls = securityCandlesInfo.Archives.FindAll(p => p.Year == startTime.Year || p.Year == endTime.Year);
@@ -915,6 +989,10 @@ namespace OsEngine.Market.Servers.TData
             if (timeFrame == TimeFrame.Min5)
             {
                 return 5;
+            }
+            if (timeFrame == TimeFrame.Min10)
+            {
+                return 10;
             }
             if (timeFrame == TimeFrame.Min15)
             {

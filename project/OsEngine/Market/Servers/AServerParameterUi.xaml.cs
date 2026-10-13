@@ -1,4 +1,4 @@
-﻿/*
+/*
  *Your rights to use the code are governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  *Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -13,6 +13,7 @@ using OsEngine.Entity;
 using OsEngine.Instructions;
 using OsEngine.Language;
 using OsEngine.Market.Servers.Entity;
+using OsEngine.Market.ServerEncryption;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -64,6 +65,7 @@ namespace OsEngine.Market.Servers
             Label21.Content = OsLocalization.Market.Label21;
             ButtonConnect.Content = OsLocalization.Market.ButtonConnect;
             ButtonAbort.Content = OsLocalization.Market.ButtonDisconnect;
+            ButtonEncryption.Content = OsLocalization.Market.Label341;
             LabelCurrentConnectionName.Content = OsLocalization.Market.Label164;
             LabelPreConfiguredConnection.Content = OsLocalization.Market.Label166;
 
@@ -84,6 +86,7 @@ namespace OsEngine.Market.Servers
                 ChangeActiveServer(numServerInArray);
 
                 Thread worker = new Thread(UpdateStatusThread);
+                worker.IsBackground = true;
                 worker.Start();
             }
 
@@ -106,6 +109,21 @@ namespace OsEngine.Market.Servers
             }
 
             StartButtonBlinkAnimation();
+
+            Loaded += AServerParameterUi_Loaded;
+        }
+
+        private void AServerParameterUi_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Loaded -= AServerParameterUi_Loaded;
+                TryShowEncryptionOffer();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
         }
 
         private void AServerParameterUi_Closed(object sender, EventArgs e)
@@ -124,6 +142,8 @@ namespace OsEngine.Market.Servers
                 ButtonConnect.Click -= ButtonConnect_Click;
                 ButtonAbort.Click -= ButtonAbort_Click;
                 ButtonPostsServerParameter.Click -= ButtonPostsAServerParameter_Click;
+
+                Loaded -= AServerParameterUi_Loaded;
 
                 ServerMaster.ServerDeleteEvent -= ServerMaster_ServerDeleteEvent;
 
@@ -502,6 +522,7 @@ namespace OsEngine.Market.Servers
                     && row < _gridConnections.Rows.Count - 1)
                 {// Connect
                     ChangeActiveServer(row);
+                    TryShowEncryptionOffer();
                     _server.StartServer();
                 }
             }
@@ -558,32 +579,37 @@ namespace OsEngine.Market.Servers
 
             LabelCurrentConnectionName.Content = label;
 
+            Color selectRowColor = Themes.ThemeManager.GetColorWinForms("OptimizerCursorColor");
+            Color normalRowColor = Themes.ThemeManager.GetColorWinForms("GridTextColor");
+
             for (int i2 = 0; _gridConnections != null && i2 < _gridConnections.Rows.Count; i2++)
             {
                 DataGridViewRow row = _gridConnections.Rows[i2];
 
-                if (i2 == number)
+                for (int i = 0; i < row.Cells.Count; i++)
                 {
-                    for (int i = 0; i < row.Cells.Count; i++)
+                    if (i == 3)
                     {
-                        if (i == 3)
-                        {
-                            continue;
-                        }
-                        row.Cells[i].Style.ForeColor = Color.FromArgb(255, 83, 0);
-                        row.Cells[i].Style.SelectionForeColor = Color.FromArgb(255, 83, 0);
+                        continue;
                     }
-                }
-                else
-                {
-                    for (int i = 0; i < row.Cells.Count; i++)
+
+                    // каждой ячейке — свой клон стиля с явным цветом текста:
+                    // иначе покраска выделенной строки протекает на всю таблицу,
+                    // а у DefaultCellStyle этого грида чёрный ForeColor
+                    DataGridViewCellStyle style = (DataGridViewCellStyle)_gridConnections.DefaultCellStyle.Clone();
+
+                    if (i2 == number)
                     {
-                        if (i == 3)
-                        {
-                            continue;
-                        }
-                        row.Cells[i].Style = _gridConnections.DefaultCellStyle;
+                        style.ForeColor = selectRowColor;
+                        style.SelectionForeColor = selectRowColor;
                     }
+                    else
+                    {
+                        style.ForeColor = normalRowColor;
+                        style.SelectionForeColor = normalRowColor;
+                    }
+
+                    row.Cells[i].Style = style;
                 }
             }
 
@@ -912,7 +938,19 @@ namespace OsEngine.Market.Servers
 
             _gridServerParameters.Rows.Clear();
 
-            for (int i = 0; i < param.Count; i++)
+            int visibleParamsCount = param.Count;
+
+            if (_server.NeedToHideStandardParameters == true)
+            {
+                visibleParamsCount = param.Count - _server.ServerStandardParamsCount;
+
+                if (visibleParamsCount < 0)
+                {
+                    visibleParamsCount = 0;
+                }
+            }
+
+            for (int i = 0; i < visibleParamsCount; i++)
             {
                 DataGridViewRow newRow = null;
 
@@ -1285,7 +1323,19 @@ namespace OsEngine.Market.Servers
         {
             List<IServerParameter> param = _server.ServerParameters;
 
-            for (int i = 0; i < param.Count; i++)
+            int visibleParamsCount = param.Count;
+
+            if (_server.NeedToHideStandardParameters == true)
+            {
+                visibleParamsCount = param.Count - _server.ServerStandardParamsCount;
+
+                if (visibleParamsCount < 0)
+                {
+                    visibleParamsCount = 0;
+                }
+            }
+
+            for (int i = 0; i < visibleParamsCount; i++)
             {
                 if (_gridServerParameters.Rows[i].Cells[1].Value == null)
                 {
@@ -1349,7 +1399,65 @@ namespace OsEngine.Market.Servers
 
         private void ButtonConnect_Click(object sender, RoutedEventArgs e)
         {
+            TryShowEncryptionOffer();
             _server.StartServer();
+        }
+
+        private void ButtonEncryption_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ServerEncryptionUi ui = new ServerEncryptionUi(false);
+                ui.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
+        private void TryShowEncryptionOffer()
+        {
+            try
+            {
+                if (ServerEncryptionMaster.GetStatus() != ServerEncryptionStatus.NotChosen)
+                {
+                    return;
+                }
+
+                bool hasPasswordParameters = false;
+
+                for (int i = 0; i < _server.ServerParameters.Count; i++)
+                {
+                    if (_server.ServerParameters[i].Type == ServerParameterType.Password)
+                    {
+                        hasPasswordParameters = true;
+                        break;
+                    }
+                }
+
+                if (hasPasswordParameters == false)
+                {
+                    return;
+                }
+
+                AcceptDialogUi ui = new AcceptDialogUi(OsLocalization.Market.Label343);
+                ui.ShowDialog();
+
+                if (ui.UserAcceptAction)
+                {
+                    ServerEncryptionUi encryptionUi = new ServerEncryptionUi(false);
+                    encryptionUi.ShowDialog();
+                }
+                else
+                {
+                    ServerEncryptionMaster.SetDeclined();
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
         }
 
         private void ButtonAbort_Click(object sender, RoutedEventArgs e)

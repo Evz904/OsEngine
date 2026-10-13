@@ -32,6 +32,7 @@ namespace OsEngine.OsTrader.Panels
         {
             InitializeComponent();
             OsEngine.Layout.StickyBorders.Listen(this);
+            OsEngine.Layout.StartupLocation.Start_FitHeightToWorkArea(this);
             _panel = panel;
             StartPaint();
             Local();
@@ -1004,10 +1005,12 @@ namespace OsEngine.OsTrader.Panels
                 if (GreedTraderEngine.Visibility == Visibility.Visible)
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 308, 0);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 315, 0);
                 }
                 else
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 0, 0);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 7, 0);
                 }
                 _informPanelIsHide = true;
             }
@@ -1034,10 +1037,12 @@ namespace OsEngine.OsTrader.Panels
                 if (GreedTraderEngine.Visibility == Visibility.Visible)
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 308, 10);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 315, 0);
                 }
                 else
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 0, 10);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 7, 0);
                 }
                 _informPanelIsHide = false;
             }
@@ -1057,10 +1062,12 @@ namespace OsEngine.OsTrader.Panels
                 if (TabControlPrime.Visibility == Visibility.Visible)
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 0, 10);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 7, 0);
                 }
                 else
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 0, 0);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 7, 0);
                 }
                 _settingsPanelIsHide = true;
             }
@@ -1080,10 +1087,12 @@ namespace OsEngine.OsTrader.Panels
                 if (TabControlPrime.Visibility == Visibility.Visible)
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 308, 10);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 315, 0);
                 }
                 else
                 {
                     GreedChartPanel.Margin = new Thickness(0, 26, 308, 0);
+                    TabControlBotsName.Margin = new Thickness(28, 0, 315, 0);
                 }
                 _settingsPanelIsHide = false;
             }

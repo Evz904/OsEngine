@@ -29,11 +29,31 @@ namespace OsEngine.Language
 
         public string Message4 => OsLocalization.ConvertToLocString(
             "Eng:Revoke all active orders_" +
-            "Ru:Отозвать все активные заявки_");
+            "Ru:Отозвать все активные ордера_");
 
         public string Message5 => OsLocalization.ConvertToLocString(
             "Eng:Revoke current order_" +
-            "Ru:Отозвать текущую_");
+            "Ru:Отозвать текущий ордер_");
+
+        public string DeleteCurrentOrder => OsLocalization.ConvertToLocString(
+            "Eng:Delete current order_" +
+            "Ru:Удалить текущий ордер_");
+
+        public string DeleteOrderInPosition => OsLocalization.ConvertToLocString(
+            "Eng:Order belongs to robot_" +
+            "Ru:Ордер принадлежит роботу_");
+
+        public string DeleteOrderWillSetState => OsLocalization.ConvertToLocString(
+            "Eng:Position will be set to state_" +
+            "Ru:Позиция будет переведена в статус_");
+
+        public string DeleteOrderConfirm => OsLocalization.ConvertToLocString(
+            "Eng:Order will be removed from the position and from the active orders table. Continue?_" +
+            "Ru:Ордер будет удалён из позиции и из таблицы активных ордеров. Продолжить?_");
+
+        public string DeleteOrderNotFound => OsLocalization.ConvertToLocString(
+            "Eng:Order does not belong to any position. It will be removed only from the active orders table. Continue?_" +
+            "Ru:Ордер не принадлежит ни одной позиции. Он будет удалён только из таблицы активных ордеров. Продолжить?_");
 
         public string TitleConnectorCandle => OsLocalization.ConvertToLocString(
             "Eng:Data flow connection_" +
@@ -683,7 +703,7 @@ namespace OsEngine.Language
             "Eng:Count news to save_" +
             "Ru:Хранить новости. Кол-во_");
 
-        
+
         public string Label164 => OsLocalization.ConvertToLocString(
           "Eng:Name _" +
           "Ru:Имя _");
@@ -1144,7 +1164,7 @@ namespace OsEngine.Language
          "Eng:Max spread to build candles_" +
          "Ru:Max спред для свечек_");
 
-        public string Label279=> OsLocalization.ConvertToLocString(
+        public string Label279 => OsLocalization.ConvertToLocString(
          "Eng:Max spread limit is on_" +
          "Ru:Включить ограничение_");
 
@@ -1155,7 +1175,7 @@ namespace OsEngine.Language
         public string Label281 => OsLocalization.ConvertToLocString(
          "Eng:The button opens the non-trading periods settings window for the connector. By selecting a non-trading period, the connector will ignore incoming data about trades and market depth. PC time is used as the control time!_" +
          "Ru:Кнопка открывает окно настроек неторговых периодов для коннектора. Выбрав неторговый период, коннектор будет игнорировать поступающие данные о трейдах и стакана. В качестве контролького времени используется время ПК!_");
-       
+
         public string Label282 => OsLocalization.ConvertToLocString(
          "Eng:Shifts the time of candles, trades, market depth, and orders to a specific time._" +
          "Ru:Сдвигает время свечей, сделок, стакана и ордеров на определенное кол-во часов._");
@@ -1291,7 +1311,7 @@ namespace OsEngine.Language
         public string Label315 => OsLocalization.ConvertToLocString(
           "Eng:Reconnects the connector with No order. If the Transit server sends an order with the inactive status (the status is not known due to problems with communication with the exchange), then such an order is marked with the None status and is considered lost. Transaq Connector does not have a method for requesting orders, so the only way to request this order is to reconnect the connector._" +
           "Ru:Переподключает коннектор при None ордере. Если сервер Транзак присылает ордер со статусом inactive (Статус не известен из-за проблем со связью с биржей), то такой ордер помечается статусом None и считается потерянным. У Transaq Connector нет метода для запроса ордеров, поэтому единственный способ запросить данный ордер это переподключение коннектора_");
-       
+
         public string Label316 => OsLocalization.ConvertToLocString(
           "Eng:Expiration_" +
           "Ru:Экспирация_");
@@ -1852,6 +1872,14 @@ namespace OsEngine.Language
             "Eng:Token_" +
             "Ru:Token_");
 
+        public string ServerParamTokenDescription => OsLocalization.ConvertToLocString(
+            "Eng:Access token for T-Invest API. Issued in the T-Invest personal account in the API section. Full access token is required for trading._" +
+            "Ru:Токен доступа к API Т-Инвест. Выдаётся в личном кабинете Т-Инвест в разделе API. Для торговли нужен токен с полным доступом._");
+
+        public string ServerParamBCSTokenDescription => OsLocalization.ConvertToLocString(
+      "Eng:Access token for BCS API. It is issued in the personal account of the BCS broker in the account menu. You need a token for trading and reading data._" +
+      "Ru:Токен доступа к API БКС. Выдаётся в личном кабинете брокера БКС в меню счета. Нужен токен для торговли и чтения данных._");
+
         public string Memo => OsLocalization.ConvertToLocString(
             "Eng:Memo_" +
             "Ru:Memo_");
@@ -1960,6 +1988,50 @@ namespace OsEngine.Language
             "Eng:Other_" +
             "Ru:Другое_");
 
+        public string UseCreditMargin => OsLocalization.ConvertToLocString(
+            "Eng:Use credit (margin)_" +
+            "Ru:Использовать кредит (плечо)_");
+
+        public string UseCreditMarginDescription => OsLocalization.ConvertToLocString(
+            "Eng:Allow the use of broker credit (leverage) when placing orders. Applies to instruments for which the broker allows credit (opmask usecredit). Not applicable to FORTS._" +
+            "Ru:Разрешить использование кредита брокера (плеча) при выставлении заявок. Действует для инструментов, по которым брокер разрешает кредит (opmask usecredit). Не применяется на FORTS._");
+
+        public string UseStockDescription => OsLocalization.ConvertToLocString(
+            "Eng:Load stocks into the securities list and allow trading them._" +
+            "Ru:Загружать акции в список бумаг и разрешить торговлю ими._");
+
+        public string UseFuturesDescription => OsLocalization.ConvertToLocString(
+            "Eng:Load futures into the securities list and allow trading them._" +
+            "Ru:Загружать фьючерсы в список бумаг и разрешить торговлю ими._");
+
+        public string UseBondsDescription => OsLocalization.ConvertToLocString(
+          "Eng:Load futures into the securities list and allow trading them._" +
+          "Ru:Загружать облигации в список бумаг и разрешить торговлю ими._");
+
+        public string UseCurrencyDescription => OsLocalization.ConvertToLocString(
+           "Eng:Load futures into the securities list and allow trading them._" +
+           "Ru:Загружать вылюты в список бумаг и разрешить торговлю ими._");
+
+        public string UseFundsDescription => OsLocalization.ConvertToLocString(
+           "Eng:Load futures into the securities list and allow trading them._" +
+           "Ru:Загружать фонды в список бумаг и разрешить торговлю ими._");
+
+        public string UseOptionsDescription => OsLocalization.ConvertToLocString(
+            "Eng:Load options into the securities list and allow trading them. Currently options trading is not available via T-Invest API._" +
+            "Ru:Загружать опционы в список бумаг и разрешить торговлю ими. В настоящее время торговля опционами через API Т-Инвест недоступна._");
+
+        public string UseOtherDescription => OsLocalization.ConvertToLocString(
+            "Eng:Load bonds, ETFs and indicative instruments into the securities list and allow trading them._" +
+            "Ru:Загружать облигации, ETF и индикативные инструменты в список бумаг и разрешить торговлю ими._");
+
+        public string UseOtherDescription2 => OsLocalization.ConvertToLocString(
+          "Eng:Load others available  instruments into the securities list and allow trading them._" +
+          "Ru:Загружать другие доступные инструменты в список бумаг и разрешить торговлю ими._");
+
+        public string SetDepthLevelsDescription => OsLocalization.ConvertToLocString(
+     "Eng:Set the number of Bid levels and Ask levels to be fed into depth._" +
+     "Ru:Установка количества уровней Bid и уровней Ask, которые будут подаваться в стакан._");
+
         public string FullLogConnector => OsLocalization.ConvertToLocString(
             "Eng:Full logging of user's orders and trades_" +
             "Ru:Полное логирование ордеров и трейдов пользователя_");
@@ -1992,6 +2064,18 @@ namespace OsEngine.Language
             "Eng:Ignore morning auction trades_" +
             "Ru:Игнорировать сделки утреннего аукциона_");
 
+        public string IgnoreMorningAuctionTradesDescription => OsLocalization.ConvertToLocString(
+            "Eng:When enabled, ignores trades before 7.00 MSK, the morning opening auction prints. They often gap from the previous close and create false signals in candles built from the trade feed._" +
+            "Ru:Если включено, игнорируются сделки до 7.00 МСК, принты утреннего аукциона открытия. Они часто идут с гэпом относительно закрытия и дают ложные сигналы в свечах, построенных по ленте сделок._");
+
+        public string FilterOutDealerData => OsLocalization.ConvertToLocString(
+            "Eng:Filter out T-Invest dealer (OTC) data_" +
+            "Ru:Отфильтровать дилерские (внебирж.) данные Т-Инвест_");
+
+        public string FilterOutDealerDataDescription => OsLocalization.ConvertToLocString(
+            "Eng:When enabled, the connector excludes data from T-Invest internal liquidity (dealer quotes and trades, including broker-initiated weekend trading). Candles, trade feed, order book and last prices come from the exchange only. MOEX-initiated weekend sessions are kept. Disable if you trade via T-Invest internal liquidity and need this data._" +
+            "Ru:Если включено, коннектор отсекает данные внутренней ликвидности Т-Инвест (дилерские котировки и сделки, включая инициированные брокером торги выходного дня). Свечи, лента сделок, стакан и последние цены берутся только с биржи. Выходные сессии, инициированные MOEX, сохраняются. Выключите, если торгуете через внутреннюю ликвидность Т-Инвест и эти данные вам нужны._");
+
         public string AuthorizationCode => OsLocalization.ConvertToLocString(
             "Eng:Authorization code_" +
             "Ru:Код авторизации_");
@@ -2015,5 +2099,253 @@ namespace OsEngine.Language
         public string LabelIgnorSec => OsLocalization.ConvertToLocString(
          "Eng: Ignored securities _" +
          "Ru: Игнорируемые инструменты _");
+
+        public string Label325 => OsLocalization.ConvertToLocString(
+         "Eng:Synchronization_" +
+         "Ru:Синхронизация_");
+
+        public string Label326 => OsLocalization.ConvertToLocString(
+         "Eng:Instrument_" +
+         "Ru:Инструмент_");
+
+        public string Label327 => OsLocalization.ConvertToLocString(
+         "Eng:Copy journal_" +
+         "Ru:Копи-журнал_");
+
+        public string Label328 => OsLocalization.ConvertToLocString(
+         "Eng:Slave portfolio_" +
+         "Ru:Ведомый портфель_");
+
+        public string Label329 => OsLocalization.ConvertToLocString(
+         "Eng:Difference_" +
+         "Ru:Разница_");
+
+        public string Label330 => OsLocalization.ConvertToLocString(
+         "Eng:Synchronize_" +
+         "Ru:Синхронизировать_");
+
+        public string Label331 => OsLocalization.ConvertToLocString(
+         "Eng:Position synchronization aligns the volume of the instrument between the copy journal and the real slave portfolio. If the difference is non-zero, click the Sync button in the row - a market order for the difference will be sent._" +
+         "Ru:Синхронизация позиций выравнивает объём по инструменту между копи-журналом и реальным ведомым портфелем. Если разница не нулевая, нажмите кнопку Sync в строке — будет отправлен рыночный ордер на разницу._");
+
+        public string Label332 => OsLocalization.ConvertToLocString(
+         "Eng:Dividends_" +
+         "Ru:Дивиденды_");
+
+        public string Label333 => OsLocalization.ConvertToLocString(
+         "Eng:Security_" +
+         "Ru:Бумага_");
+
+        public string Label334 => OsLocalization.ConvertToLocString(
+         "Eng:Date_" +
+         "Ru:Дата_");
+
+        public string Label335 => OsLocalization.ConvertToLocString(
+         "Eng:Sum_" +
+         "Ru:Сумма_");
+
+        public string Label336 => OsLocalization.ConvertToLocString(
+         "Eng:Bot_" +
+         "Ru:Робот_");
+
+        public string Label337 => OsLocalization.ConvertToLocString(
+         "Eng:Open data base_" +
+         "Ru:Открыть базу данных_");
+
+        public string Label338 => OsLocalization.ConvertToLocString(
+         "Eng:Update data base_" +
+         "Ru:Обновить базу данных_");
+
+        public string Label339 => OsLocalization.ConvertToLocString(
+         "Eng:Updating dividend data can take 5 minutes or more and requires a stable internet connection. Continue?_" +
+         "Ru:Обновление данных по дивидендам может занять 5 и более минут и требует стабильного интернета. Продолжить?_");
+
+        public string Label340 => OsLocalization.ConvertToLocString(
+         "Eng:Updating dividend data. Please wait..._" +
+         "Ru:Обновление данных по дивидендам. Пожалуйста, подождите..._");
+
+        public string LabelPaymentDate => OsLocalization.ConvertToLocString(
+         "Eng:Payment date_" +
+         "Ru:Дата выплаты_");
+
+        public string LabelTabItemDividends => OsLocalization.ConvertToLocString(
+         "Eng: Dividends _" +
+         "Ru: Дивиденды _");
+
+        public string LabelDividendsIsOn => OsLocalization.ConvertToLocString(
+         "Eng:Is On_" +
+         "Ru:Включено_");
+
+        public string LabelAccrualsAndCharges => OsLocalization.ConvertToLocString(
+         "Eng:Accruals & Charges_" +
+         "Ru:Начисления и списания_");
+
+        public string LabelTabItemMargin => OsLocalization.ConvertToLocString(
+         "Eng: Margin _" +
+         "Ru: Маржа _");
+
+        public string LabelTabItemTaxes => OsLocalization.ConvertToLocString(
+         "Eng: Taxes _" +
+         "Ru: Налоги _");
+
+        public string LabelMarginRegime => OsLocalization.ConvertToLocString(
+         "Eng:Regime_" +
+         "Ru:Режим_");
+
+        public string LabelChargeDate => OsLocalization.ConvertToLocString(
+         "Eng:Charge date_" +
+         "Ru:Дата списания_");
+
+        public string LabelComment => OsLocalization.ConvertToLocString(
+         "Eng:Comment_" +
+         "Ru:Комментарий_");
+
+        public string LabelHelpDividends => OsLocalization.ConvertToLocString(
+         "Eng:Dividends are credited to positions held open on the T-1 date, the last day to receive the payment. Money is credited to the virtual portfolio with a delay of 7 calendar days, net of 13 percent income tax. A synthetic position with the divs suffix is added to the robot journal._" +
+         "Ru:Дивиденды начисляются на позиции, открытые на дату Т-1 — последний день для получения выплаты. Деньги зачисляются на виртуальный портфель с задержкой 7 календарных дней за вычетом налога 13 процентов. В журнал робота добавляется синтетическая позиция с суффиксом divs._");
+
+        public string LabelHelpMargin => OsLocalization.ConvertToLocString(
+         "Eng:A margin fee is charged daily for borrowed funds. The loan is the full volume of short positions plus the long volume exceeding the deposit. Futures are counted with a coefficient of 0.2 in both directions. Rates are set in the tables. Summ mode is a tiered daily fee, Percent mode is an annual rate._" +
+         "Ru:Маржинальная плата списывается ежедневно за заёмные средства. Заём — это весь объём шортов плюс объём лонгов сверх депозита. Фьючерсы учитываются с коэффициентом 0.2 в обоих направлениях. Тарифы задаются в таблицах. Режим Summ — ступенчатая плата в день, Percent — годовая ставка._");
+
+        public string LabelHelpTaxes => OsLocalization.ConvertToLocString(
+         "Eng:Once a year a tax is charged on the profit of closed positions. Dividend payments and tax positions are excluded from the base, margin fees reduce it. The rate is set for each year in the table. Commodity futures are taxed separately._" +
+         "Ru:Раз в год списывается налог с прибыли закрытых позиций. Дивидендные выплаты и позиции налога исключаются из базы, расходы на маржу её уменьшают. Ставка задаётся для каждого года в таблице. Товарные фьючерсы облагаются отдельно._");
+
+        public string LabelAcceptRemoveClearing => OsLocalization.ConvertToLocString(
+         "Eng:Are you sure you want to remove the clearing?_" +
+         "Ru:Вы уверены, что хотите удалить время отзыва ордеров?_");
+
+        public string LabelAcceptRemoveNonTradePeriod => OsLocalization.ConvertToLocString(
+         "Eng:Are you sure you want to remove the non trade period?_" +
+         "Ru:Вы уверены, что хотите удалить неторговый период?_");
+
+        public string Label341 => OsLocalization.ConvertToLocString(
+         "Eng:Encryption_" +
+         "Ru:Шифрование_");
+
+        public string Label342 => OsLocalization.ConvertToLocString(
+         "Eng:Server passwords encryption_" +
+         "Ru:Шифрование паролей серверов_");
+
+        public string Label343 => OsLocalization.ConvertToLocString(
+         "Eng:Do you want to encrypt server passwords (API keys) stored on this computer?_" +
+         "Ru:Зашифровать пароли серверов (ключи API), хранящиеся на этом компьютере?_");
+
+        public string Label344 => OsLocalization.ConvertToLocString(
+         "Eng:Current password_" +
+         "Ru:Текущий пароль_");
+
+        public string Label345 => OsLocalization.ConvertToLocString(
+         "Eng:New password_" +
+         "Ru:Новый пароль_");
+
+        public string Label346 => OsLocalization.ConvertToLocString(
+         "Eng:Repeat password_" +
+         "Ru:Повторите пароль_");
+
+        public string Label347 => OsLocalization.ConvertToLocString(
+         "Eng:Enable_" +
+         "Ru:Включить_");
+
+        public string Label348 => OsLocalization.ConvertToLocString(
+         "Eng:Disable_" +
+         "Ru:Выключить_");
+
+        public string Label349 => OsLocalization.ConvertToLocString(
+         "Eng:Change password_" +
+         "Ru:Сменить пароль_");
+
+        public string Label350 => OsLocalization.ConvertToLocString(
+         "Eng:Wrong password. Try again_" +
+         "Ru:Неверный пароль. Попробуйте ещё_");
+
+        public string Label351 => OsLocalization.ConvertToLocString(
+         "Eng:Password must be at least 8 characters_" +
+         "Ru:Пароль должен быть не короче 8 символов_");
+
+        public string Label352 => OsLocalization.ConvertToLocString(
+         "Eng:Passwords do not match_" +
+         "Ru:Пароли не совпадают_");
+
+        public string Label353 => OsLocalization.ConvertToLocString(
+         "Eng:Status_" +
+         "Ru:Статус_");
+
+        public string Label354 => OsLocalization.ConvertToLocString(
+         "Eng:Encryption is on_" +
+         "Ru:Шифрование включено_");
+
+        public string Label355 => OsLocalization.ConvertToLocString(
+         "Eng:Encryption is off_" +
+         "Ru:Шифрование выключено_");
+
+        public string Label356 => OsLocalization.ConvertToLocString(
+         "Eng:Unlock_" +
+         "Ru:Разблокировать_");
+
+        public string Label357 => OsLocalization.ConvertToLocString(
+         "Eng:Close_" +
+         "Ru:Закрыть_");
+
+        public string Label358 => OsLocalization.ConvertToLocString(
+         "Eng:Passwords are encrypted. Enter the master password to unlock_" +
+         "Ru:Пароли зашифрованы. Введите мастер-пароль для разблокировки_");
+
+        public string Label362 => OsLocalization.ConvertToLocString(
+         "Eng:Forgotten password cannot be recovered. API keys must be re-entered_" +
+         "Ru:Забытый пароль восстановить невозможно. Ключи API придётся ввести заново_");
+
+        public string Label363 => OsLocalization.ConvertToLocString(
+         "Eng:Cancel_" +
+         "Ru:Отмена_");
+
+        public string Label364 => OsLocalization.ConvertToLocString(
+         "Eng: Setup _" +
+         "Ru: Установка _");
+
+        public string Label365 => OsLocalization.ConvertToLocString(
+         "Eng: Unlock _" +
+         "Ru: Разблокировка _");
+
+        public string Label366 => OsLocalization.ConvertToLocString(
+         "Eng: Change _" +
+         "Ru: Смена _");
+
+        public string Label367 => OsLocalization.ConvertToLocString(
+         "Eng: Disable _" +
+         "Ru: Отключение _");
+
+        public string Label368 => OsLocalization.ConvertToLocString(
+         "Eng:Encryption will be disabled. All keys will be decrypted to plain text_" +
+         "Ru:Шифрование будет выключено. Все ключи расшифруются в открытый вид_");
+
+        public string Label369 => OsLocalization.ConvertToLocString(
+         "Eng:Operation failed. See the log for details_" +
+         "Ru:Операция не выполнена. Подробности в логе_");
+
+        public string Label370 => OsLocalization.ConvertToLocString(
+         "Eng:Here you can enable encryption of server passwords (API keys) stored on this computer.\n\nCreate a master password of at least 8 characters. All keys of all connectors will be encrypted with it. After the program starts, you will need to enter the master password once - all connectors will be decrypted for the session.\n\nThe master password is not stored anywhere and cannot be recovered. If you forget it, you will have to re-enter all API keys manually._" +
+         "Ru:Здесь включается шифрование паролей серверов (ключей API), хранящихся на этом компьютере.\n\nПридумайте мастер-пароль не короче 8 символов. Все ключи всех коннекторов будут зашифрованы им. После запуска программы мастер-пароль нужно будет ввести один раз - все коннекторы расшифруются на время сессии.\n\nМастер-пароль нигде не хранится и не восстанавливается. Если Вы его забудете, все ключи API придётся ввести заново вручную_");
+
+        public string Label371 => OsLocalization.ConvertToLocString(
+         "Eng:Server passwords on this computer are encrypted. Enter the master password you created when enabling encryption.\n\nAfter a successful entry, all connectors will be decrypted until the program is closed. You will not need to enter the password again in this session.\n\nIf the password is wrong, nothing will happen - you can try again. If you close the window without entering the password, encrypted connectors will not receive their keys and will not connect._" +
+         "Ru:Пароли серверов на этом компьютере зашифрованы. Введите мастер-пароль, который Вы создавали при включении шифрования.\n\nПосле успешного ввода все коннекторы расшифруются до закрытия программы. Повторно вводить пароль в этой сессии не потребуется.\n\nЕсли пароль неверный, ничего страшного - попробуйте ещё. Если закрыть окно без ввода, зашифрованные коннекторы не получат свои ключи и не подключатся_");
+
+        public string Label372 => OsLocalization.ConvertToLocString(
+         "Eng:Here you can change the master password that encrypts server passwords.\n\nEnter the current master password and the new one twice. All keys of all connectors will be decrypted with the old password and immediately re-encrypted with the new one. The operation is safe - if anything goes wrong, the files will remain encrypted with the old password._" +
+         "Ru:Здесь меняется мастер-пароль, которым зашифрованы пароли серверов.\n\nВведите текущий мастер-пароль и дважды новый. Все ключи всех коннекторов будут расшифрованы старым паролем и сразу зашифрованы новым. Операция безопасна - если что-то пойдёт не так, файлы останутся зашифрованы старым паролем_");
+
+        public string Label373 => OsLocalization.ConvertToLocString(
+         "Eng:Here you can completely disable encryption of server passwords.\n\nEnter the current master password. All keys of all connectors will be decrypted and stored in plain text, as before encryption was enabled. The master password will be forgotten by the program.\n\nThis operation is available only locally in this window. It cannot be performed through the API._" +
+         "Ru:Здесь можно полностью выключить шифрование паролей серверов.\n\nВведите текущий мастер-пароль. Все ключи всех коннекторов будут расшифрованы и сохранены в открытом виде, как до включения шифрования. Мастер-пароль будет забыт программой.\n\nЭта операция доступна только локально в этом окне. Через API её выполнить нельзя_");
+
+        public string Label374 => OsLocalization.ConvertToLocString(
+         "Eng:Number of order book levels to subscribe. books5 - 5 levels, books50 - 50 levels. If the standard parameter \"Use full market depth\" is set to False, books1 (best bid/ask) is used regardless of this setting_" +
+         "Ru:Количество уровней в стакане при подписке. books5 - 5 уровней, books50 - 50 уровней. Если стандартный параметр \"Использовать полный стакан\" выключен (False), то используется books1 (лучший бид/аск) независимо от этой настройки_");
+
+        public string Label375 => OsLocalization.ConvertToLocString(
+        "Eng:Number of order book levels. 5 - 5 levels updated every 100 ms (low load). 400 - up to 400 levels with incremental updates on every change (high CPU load)_" +
+        "Ru:Количество уровней стакана. 5 - 5 уровней с обновлением раз в 100 мс (низкая нагрузка). 400 - до 400 уровней с инкрементальными обновлениями на каждое изменение (высокая нагрузка на ЦП)_");
     }
 }

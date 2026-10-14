@@ -601,7 +601,7 @@ namespace OsEngine.Robots.Screeners
             CheckSecuritiesRating();
 
             List<Position> openPositions = tab.PositionsOpenAll;
-
+            strTime = candles[^1].TimeStart.ToString();
             if (openPositions != null && openPositions.Count != 0)
             {
                 //for (int i = 0; i < openPositions.Count; i++)
@@ -609,7 +609,7 @@ namespace OsEngine.Robots.Screeners
                     LogicClosePosition(candles, tab, openPositions[0]);
                 //}
             }
-            strTime = candles[^1].TimeStart.ToString();
+
             if (openPositions.Count == 0)
             { // opening logic
 

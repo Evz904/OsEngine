@@ -224,6 +224,10 @@ namespace OsEngine.Robots.Screeners
             _securitiesToTrade.ValueString = "";
             _lastTimeRating = DateTime.MinValue;
             _bStartWork = false;
+            if (securityRatingData != null)
+            {
+                securityRatingData.Clear();
+            }
         }
         private void EVZScreener_ParametrsChangeByUser()
         {
@@ -293,7 +297,7 @@ namespace OsEngine.Robots.Screeners
 
             //if (securityRatingData.Count > 0)
             //{
-            //    securityRatingData.Clear();
+            securityRatingData.Clear();
             //}
 
             List<BotTabSimple> tabs = _tabScreener.Tabs;

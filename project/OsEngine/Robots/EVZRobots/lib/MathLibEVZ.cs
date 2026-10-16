@@ -285,16 +285,16 @@ namespace OsEngine.Robots.EVZRobots.lib
     }
     public class MaxLoValue
     {
-        protected int Period;
-        protected int Index;
-        protected int CurrenIndex;
+        protected int Period; // Период за который расчитываются переменные
+        protected int Index;  // Текущий индекс периода
+       // protected int CurrenIndex;
 
-        public decimal MaxHi;
-        public decimal MinLo;
-        public decimal StreamMaxRange;
+        public decimal MaxHi; // Максимальное значение цены за период
+        public decimal MinLo; // Минимальное значение цены за период
+        public decimal StreamMaxRange; // Текущее максимальное изменение цены за период ( StreamMaxRange = MaxHi - MinLo;)
         //public decimal StreamOpenCloseRange;
-        public decimal TotalChange;
-        public decimal Value;
+        public decimal TotalChange; // Полное изменение цены за период. Расчитывается, как сумма максимальных изменений цены за каждую свечу
+        public decimal Value; // основное значение волатильности, Отношение максимальное изменение / общее изменение, вычисляется как - Value = StreamMaxRange / TotalChange;
         public decimal Value1;
         public decimal Value2;
         //public int iMax;
@@ -318,7 +318,7 @@ namespace OsEngine.Robots.EVZRobots.lib
             StreamMaxRange = 0.0m;
             TotalChange = 0.0m;
             Index = 0;
-            CurrenIndex = 0;
+            // CurrenIndex = 0;
             RangeList = new Queue<decimal>(Period);
             OpenList = new Queue<decimal>(Period);
 
@@ -332,6 +332,7 @@ namespace OsEngine.Robots.EVZRobots.lib
             {
                 Candle candle2 = candles[index - 1];
                 Candle candle = candles[index];
+                // Вычисляем максимальное изменение цены(по алгоритму расчёта ATR)
                 decimal hiToLow = Math.Abs(candle.High - candle.Low);
                 decimal closeToHigh = Math.Abs(candle2.Close - candle.High);
                 decimal closeToLow = Math.Abs(candle2.Close - candle.Low);
@@ -341,64 +342,28 @@ namespace OsEngine.Robots.EVZRobots.lib
                 //decimal tempRange = candle.High - candle.Low;
                 RangeList.Enqueue(tempRange);
                 OpenList.Enqueue(candle.Open);
+                // Расчитываем ход цены за весь период
                 TotalChange += tempRange;
 
                 ListMax.Enqueue(candle.High);
                 ListMin.Enqueue(candle.Low);
                 bool bSetlow = false;
-                //if (candle.ShadowTop + candle.ShadowBottom < candle.Body)
-                //{
+                // Запоминаем минимальное значение цены за период
                 if (candle.Low < MinLo)
                 {
                     MinLo = candle.Low;
                     //iMin = Index;
                     bSetlow = true;
                 }
-                //}
-                //else
-                //{
-                //    if (candle.IsDown && candle.Close < MinLo)
-                //    {
-                //        MinLo = candle.Close;
-                //        iMin = Index;
-                //        bSetlow = true;
-                //    }
-                //    else if(candle.IsUp && candle.Open < MinLo)
-                //    {
-                //        MinLo = candle.Open;
-                //        iMin = Index;
-                //        bSetlow = true;
-
-                //    }
-                //}
 
                 bool bSetHi = false;
-                //if (candle.ShadowTop + candle.ShadowBottom < candle.Body)
-                //{
+                // Запоминаем максимальное значение цены за период
                 if (candle.High > MaxHi)
                 {
                     MaxHi = candle.High;
                     //iMax = Index;
                     bSetHi = true;
                 }
-                //}
-                //else
-                //{
-                //    if (candle.IsDown && candle.Open > MaxHi)
-                //    {
-                //        MaxHi = candle.Open;
-                //        iMax = Index;
-                //        bSetlow = true;
-                //    }
-                //    else if (candle.IsUp && candle.Close < MaxHi)
-                //    {
-                //        MaxHi = candle.Close;
-                //        iMax = Index;
-                //        bSetlow = true;
-
-                //    }
-                //}
-                //decimal OpenLow = ListMin.Peek();
                 if (Index >= Period)
                 {
                     decimal leavingMax = ListMax.Dequeue();
@@ -428,18 +393,13 @@ namespace OsEngine.Robots.EVZRobots.lib
                     }
                     TotalChange -= RangeList.Dequeue();
                     //Value1 = Math.Abs(OpenList.Dequeue() - candle.Close);
-                    Value1 = candle.Close - OpenList.Dequeue();
-                    Value2 = Math.Abs(Value1);
+                    Value1 = candle.Close - OpenList.Dequeue(); // Вычисляем текущую разницу между ценой открытия начала интервала и и ценой закрытия конца интервала
+                    Value2 = Math.Abs(Value1); // Получаем абсолютное значение изменения
                     
                     //StreamOpenCloseRange = Math.Abs(candles[Index].Close - candles[Index - Period].Open);
                 }
-                //else
-                //{
-                    //StreamOpenCloseRange = Math.Abs(candles[Index].Close - candles[Index % Period].Open);
-                //}
-
+ 
                 StreamMaxRange = MaxHi - MinLo;
-
 
                 if (TotalChange != 0)
                 {
@@ -454,8 +414,7 @@ namespace OsEngine.Robots.EVZRobots.lib
                     Value2 = 0.0m;
 
                 }
-
-                
+               
             }
             Index++;
         }

@@ -45,7 +45,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
 
             List<Security> securities = Server.Securities;
 
-            if (securities == null &&
+            if (securities == null ||
                 securities.Count == 0)
             {
                 SetNewError("Error 2. No securities found");
@@ -314,6 +314,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
             {
                 SetNewError("Error 14. No Portfolio found");
                 TestEnded();
+                return 0;
             }
 
             Portfolio myPorftolio = null;
@@ -334,6 +335,11 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
             }
 
             List<PositionOnBoard> myPositions = myPorftolio.GetPositionOnBoard();
+
+            if (myPositions == null)
+            {
+                return 0;
+            }
 
             PositionOnBoard myPositionOnBoard = null;
 
@@ -589,6 +595,12 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
             }
 
             List<PositionOnBoard> positions = portfolio.GetPositionOnBoard();
+
+            if (positions == null)
+            {
+                SetNewServiceInfo("No positions in portfolio " + portfolio.Number + ". Positions validation skipped");
+                return;
+            }
 
             for (int i = 0; i < positions.Count; i++)
             {

@@ -5,6 +5,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -119,6 +120,14 @@ namespace OsEngine.MCP.Modules
                         response.Result = SetTradeSettings(request.Params);
                         break;
 
+                    case "optimizer_cache_get":
+                        response.Result = GetCache();
+                        break;
+
+                    case "optimizer_cache_set":
+                        response.Result = SetCache(request.Params);
+                        break;
+
                     case "optimizer_position_support_get":
                         response.Result = GetPositionSupport();
                         break;
@@ -189,6 +198,30 @@ namespace OsEngine.MCP.Modules
 
                     case "optimizer_load_report":
                         response.Result = LoadReport(request.Params);
+                        break;
+
+                    case "optimizer_save_report_db":
+                        response.Result = SaveReportDb();
+                        break;
+
+                    case "optimizer_list_report_db":
+                        response.Result = ListReportDb(request.Params);
+                        break;
+
+                    case "optimizer_db_cleanup":
+                        response.Result = CleanupReportDb(request.Params);
+                        break;
+
+                    case "optimizer_load_report_db":
+                        response.Result = LoadReportDb(request.Params);
+                        break;
+
+                    case "optimizer_delete_report_db":
+                        response.Result = DeleteReportDb(request.Params);
+                        break;
+
+                    case "optimizer_query_report_db":
+                        response.Result = QueryReportDb(request.Params);
                         break;
 
                     default:
@@ -325,13 +358,13 @@ namespace OsEngine.MCP.Modules
                 new McpTool
                 {
                     Name = "optimizer_trade_settings_get",
-                    Description = "Get optimizer trade settings: commission, execution type, slippage, start deposit",
+                    Description = "Get optimizer trade settings: commission, execution type, slippage, start deposit, order clearing times and non-trade periods",
                     InputSchema = new { type = "object", properties = new { }, required = new string[0] }
                 },
                 new McpTool
                 {
                     Name = "optimizer_trade_settings_set",
-                    Description = "Set optimizer trade settings. All fields are optional",
+                    Description = "Set optimizer trade settings. All fields are optional. clearing and non_trade_periods replace the whole list",
                     InputSchema = new
                     {
                         type = "object",
@@ -342,7 +375,29 @@ namespace OsEngine.MCP.Modules
                             order_execution_type = new { type = "string", description = "Touch, Intersection, FiftyFifty" },
                             slippage_to_simple_order = new { type = "integer" },
                             slippage_to_stop_order = new { type = "integer" },
-                            start_deposit = new { type = "number" }
+                            start_deposit = new { type = "number" },
+                            clearing = new { type = "array", description = "Intraday order revocation times. Replaces the whole list. Items: { time: 'HH:mm', is_on: bool (default false) }" },
+                            non_trade_periods = new { type = "array", description = "Non-trading periods. Replaces the whole list. Items: { date_start: ISO, date_end: ISO, is_on: bool (default false) }" }
+                        },
+                        required = new string[0]
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_cache_get",
+                    Description = "Get the indicator caching setting of the optimizer",
+                    InputSchema = new { type = "object", properties = new { }, required = new string[0] }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_cache_set",
+                    Description = "Set the indicator caching setting of the optimizer. All fields are optional",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            cache_indicators_is_on = new { type = "boolean" }
                         },
                         required = new string[0]
                     }
@@ -375,6 +430,7 @@ namespace OsEngine.MCP.Modules
                                         start = new { type = "number" },
                                         stop = new { type = "number" },
                                         step = new { type = "number" },
+                                        step_type = new { type = "string", description = "Absolute, Percent (Int and Decimal parameters)" },
                                         on = new { type = "boolean" }
                                     }
                                 }
@@ -474,6 +530,88 @@ namespace OsEngine.MCP.Modules
                             path = new { type = "string" }
                         },
                         required = new[] { "path" }
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_save_report_db",
+                    Description = "Save optimization results to the SQLite database (Engine\\OptimizerResults.db)",
+                    InputSchema = new { type = "object", properties = new { }, required = new string[0] }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_list_report_db",
+                    Description = "List saved optimization runs from the SQLite database (metadata only, newest first). Optional filters: robot (exact), date_from/date_to (saved_at range)",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            robot = new { type = "string", description = "Exact robot name filter (optional)" },
+                            date_from = new { type = "string", description = "Saved after this date, yyyy-MM-dd (optional)" },
+                            date_to = new { type = "string", description = "Saved before this date, yyyy-MM-dd (optional)" }
+                        },
+                        required = new string[0]
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_db_cleanup",
+                    Description = "Delete optimization runs saved before the given date (manual cleanup)",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            before_date = new { type = "string", description = "Delete runs saved before this date, yyyy-MM-dd" }
+                        },
+                        required = new[] { "before_date" }
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_load_report_db",
+                    Description = "Load a saved optimization run from the SQLite database by run_id (replaces current results)",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            run_id = new { type = "integer" }
+                        },
+                        required = new[] { "run_id" }
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_delete_report_db",
+                    Description = "Delete a saved optimization run from the SQLite database by run_id",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            run_id = new { type = "integer" }
+                        },
+                        required = new[] { "run_id" }
+                    }
+                },
+                new McpTool
+                {
+                    Name = "optimizer_query_report_db",
+                    Description = "Query optimization reports from the SQLite database: sort by a metric column, filter by faze, limit rows",
+                    InputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            run_id = new { type = "integer" },
+                            sort_by = new { type = "string", description = "Column: total_profit, profit_factor, max_draw_down, positions_count, recovery, sharp_ratio, pay_off_ratio, profit_position_percent, total_profit_percent, average_profit, average_profit_percent_one_contract, bot_name, faze_type, faze_index" },
+                            order = new { type = "string", description = "asc or desc (default desc)" },
+                            faze_type = new { type = "string", description = "InSample or OutOfSample (optional)" },
+                            limit = new { type = "integer", description = "Max rows to return (optional)" }
+                        },
+                        required = new[] { "run_id" }
                     }
                 },
                 new McpTool
@@ -1193,6 +1331,39 @@ namespace OsEngine.MCP.Modules
         {
             OptimizerMaster master = GetMasterRequired();
 
+            List<object> clearing = new List<object>();
+
+            if (master.ClearingTimes != null)
+            {
+                for (int i = 0; i < master.ClearingTimes.Count; i++)
+                {
+                    OrderClearing item = master.ClearingTimes[i];
+
+                    clearing.Add(new
+                    {
+                        time = item.Time.ToString("HH:mm", CultureInfo.InvariantCulture),
+                        is_on = item.IsOn
+                    });
+                }
+            }
+
+            List<object> nonTradePeriods = new List<object>();
+
+            if (master.NonTradePeriods != null)
+            {
+                for (int i = 0; i < master.NonTradePeriods.Count; i++)
+                {
+                    NonTradePeriod period = master.NonTradePeriods[i];
+
+                    nonTradePeriods.Add(new
+                    {
+                        date_start = period.DateStart.ToString("O", CultureInfo.InvariantCulture),
+                        date_end = period.DateEnd.ToString("O", CultureInfo.InvariantCulture),
+                        is_on = period.IsOn
+                    });
+                }
+            }
+
             return new
             {
                 commission_type = master.CommissionType.ToString(),
@@ -1200,7 +1371,9 @@ namespace OsEngine.MCP.Modules
                 order_execution_type = master.OrderExecutionType.ToString(),
                 slippage_to_simple_order = master.SlippageToSimpleOrder,
                 slippage_to_stop_order = master.SlippageToStopOrder,
-                start_deposit = master.StartDeposit
+                start_deposit = master.StartDeposit,
+                clearing = clearing,
+                non_trade_periods = nonTradePeriods
             };
         }
 
@@ -1255,7 +1428,101 @@ namespace OsEngine.MCP.Modules
                 master.StartDeposit = startDeposit;
             }
 
+            if (parameters.TryGetProperty("clearing", out JsonElement clearingElement)
+                && clearingElement.ValueKind == JsonValueKind.Array)
+            {
+                List<OrderClearing> clearing = new List<OrderClearing>();
+
+                foreach (JsonElement itemElement in clearingElement.EnumerateArray())
+                {
+                    if (itemElement.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    OrderClearing item = new OrderClearing();
+
+                    if (!itemElement.TryGetProperty("time", out JsonElement timeElement)
+                        || timeElement.ValueKind != JsonValueKind.String
+                        || string.IsNullOrWhiteSpace(timeElement.GetString()))
+                    {
+                        throw new ArgumentException("Each clearing item must have a time in 'HH:mm' format");
+                    }
+
+                    item.Time = ParseClearingTime(timeElement.GetString());
+
+                    if (itemElement.TryGetProperty("is_on", out JsonElement isOnElement)
+                        && (isOnElement.ValueKind == JsonValueKind.True || isOnElement.ValueKind == JsonValueKind.False))
+                    {
+                        item.IsOn = isOnElement.GetBoolean();
+                    }
+
+                    clearing.Add(item);
+                }
+
+                master.ClearingTimes = clearing;
+                master.SaveClearingInfo();
+            }
+
+            if (parameters.TryGetProperty("non_trade_periods", out JsonElement periodsElement)
+                && periodsElement.ValueKind == JsonValueKind.Array)
+            {
+                List<NonTradePeriod> periods = new List<NonTradePeriod>();
+
+                foreach (JsonElement periodElement in periodsElement.EnumerateArray())
+                {
+                    if (periodElement.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    NonTradePeriod period = new NonTradePeriod();
+
+                    if (periodElement.TryGetProperty("date_start", out JsonElement dateStartElement)
+                        && dateStartElement.ValueKind == JsonValueKind.String
+                        && DateTime.TryParse(dateStartElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime dateStart))
+                    {
+                        period.DateStart = dateStart;
+                    }
+
+                    if (periodElement.TryGetProperty("date_end", out JsonElement dateEndElement)
+                        && dateEndElement.ValueKind == JsonValueKind.String
+                        && DateTime.TryParse(dateEndElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime dateEnd))
+                    {
+                        period.DateEnd = dateEnd;
+                    }
+
+                    if (periodElement.TryGetProperty("is_on", out JsonElement isOnElement)
+                        && (isOnElement.ValueKind == JsonValueKind.True || isOnElement.ValueKind == JsonValueKind.False))
+                    {
+                        period.IsOn = isOnElement.GetBoolean();
+                    }
+
+                    periods.Add(period);
+                }
+
+                master.NonTradePeriods = periods;
+                master.SaveNonTradePeriods();
+            }
+
             return GetTradeSettings();
+        }
+
+        private DateTime ParseClearingTime(string value)
+        {
+            if (value.Length != 5 || value[2] != ':')
+            {
+                throw new ArgumentException($"Invalid clearing time '{value}'. Expected format 'HH:mm'");
+            }
+
+            if (!int.TryParse(value.Substring(0, 2), NumberStyles.None, CultureInfo.InvariantCulture, out int hour)
+                || !int.TryParse(value.Substring(3, 2), NumberStyles.None, CultureInfo.InvariantCulture, out int minute)
+                || hour < 0 || hour > 23 || minute < 0 || minute > 59)
+            {
+                throw new ArgumentException($"Invalid clearing time '{value}'. Expected format 'HH:mm'");
+            }
+
+            return new DateTime(2000, 1, 1, hour, minute, 0);
         }
 
         private object GetPositionSupport()
@@ -1363,6 +1630,38 @@ namespace OsEngine.MCP.Modules
             {
                 apply(value);
             }
+        }
+
+        #endregion
+
+        #region Indicator caching
+
+        private object GetCache()
+        {
+            OptimizerMaster master = GetMasterRequired();
+
+            return new
+            {
+                cache_indicators_is_on = master.CacheIndicatorsIsOn
+            };
+        }
+
+        private object SetCache(JsonElement parameters)
+        {
+            if (parameters.ValueKind != JsonValueKind.Object)
+            {
+                throw new ArgumentException("Parameters must be an object");
+            }
+
+            OptimizerMaster master = GetMasterRequired();
+
+            if (parameters.TryGetProperty("cache_indicators_is_on", out JsonElement cacheElement)
+                && (cacheElement.ValueKind == JsonValueKind.True || cacheElement.ValueKind == JsonValueKind.False))
+            {
+                master.CacheIndicatorsIsOn = cacheElement.GetBoolean();
+            }
+
+            return GetCache();
         }
 
         #endregion
@@ -1727,6 +2026,17 @@ namespace OsEngine.MCP.Modules
                     save[5] = newStep.ToString();
                 }
 
+                if (item.TryGetProperty("step_type", out JsonElement stepTypeElement)
+                    && stepTypeElement.ValueKind == JsonValueKind.String)
+                {
+                    if (!Enum.TryParse<StrategyParameterStepType>(stepTypeElement.GetString(), true, out StrategyParameterStepType stepType))
+                    {
+                        throw new ArgumentException($"Parameter '{parameter.Name}': unknown step_type '{stepTypeElement.GetString()}'. Expected: Absolute, Percent");
+                    }
+
+                    save[6] = stepType.ToString();
+                }
+
                 if (Convert.ToInt32(save[3]) > Convert.ToInt32(save[4]))
                 {
                     throw new ArgumentException($"Parameter '{parameter.Name}': start {save[3]} is greater than stop {save[4]}");
@@ -1777,6 +2087,17 @@ namespace OsEngine.MCP.Modules
                     && stepElement.TryGetDecimal(out decimal newStep))
                 {
                     save[5] = newStep.ToString();
+                }
+
+                if (item.TryGetProperty("step_type", out JsonElement stepTypeElement)
+                    && stepTypeElement.ValueKind == JsonValueKind.String)
+                {
+                    if (!Enum.TryParse<StrategyParameterStepType>(stepTypeElement.GetString(), true, out StrategyParameterStepType stepType))
+                    {
+                        throw new ArgumentException($"Parameter '{parameter.Name}': unknown step_type '{stepTypeElement.GetString()}'. Expected: Absolute, Percent");
+                    }
+
+                    save[6] = stepType.ToString();
                 }
 
                 if (save[3].ToDecimal() > save[4].ToDecimal())
@@ -2267,6 +2588,253 @@ namespace OsEngine.MCP.Modules
             master._optimizerExecutor.ReportsToFazes = reports;
 
             return GetReport(parameters);
+        }
+
+        private object SaveReportDb()
+        {
+            OptimizerMaster master = GetMasterRequired();
+            List<OptimizerFazeReport> reports = master._optimizerExecutor.ReportsToFazes;
+
+            if (reports == null || reports.Count == 0)
+            {
+                throw new InvalidOperationException("No optimization results to save");
+            }
+
+            OptimizerDataStorage storage = master.Storage;
+
+            string dataSet = string.Empty;
+
+            if (storage.ActiveSet != null && storage.ActiveSet.StartsWith(@"Data\Set_"))
+            {
+                dataSet = storage.ActiveSet.Substring(@"Data\Set_".Length);
+            }
+
+            string timeframe = string.Empty;
+
+            if (storage.SecuritiesTester != null && storage.SecuritiesTester.Count > 0)
+            {
+                timeframe = storage.SecuritiesTester[0].TimeFrame.ToString();
+            }
+
+            OptimizerReportDb db = new OptimizerReportDb();
+
+            long runId = db.Save(
+                reports,
+                master.StrategyName,
+                dataSet,
+                timeframe,
+                master.TimeStart.ToString("O", CultureInfo.InvariantCulture),
+                master.TimeEnd.ToString("O", CultureInfo.InvariantCulture),
+                master.IterationCount,
+                master.ThreadsCount,
+                _lastFinishedPartial);
+
+            int reportsCount = 0;
+
+            for (int i = 0; i < reports.Count; i++)
+            {
+                reportsCount += reports[i].Reports.Count;
+            }
+
+            return new
+            {
+                saved = true,
+                run_id = runId,
+                fazes_count = reports.Count,
+                reports_count = reportsCount
+            };
+        }
+
+        private object ListReportDb(JsonElement parameters)
+        {
+            GetMasterRequired();
+
+            string robot = null;
+            string dateFrom = null;
+            string dateTo = null;
+
+            if (parameters.ValueKind == JsonValueKind.Object)
+            {
+                if (parameters.TryGetProperty("robot", out JsonElement robotElement)
+                    && robotElement.ValueKind == JsonValueKind.String)
+                {
+                    robot = robotElement.GetString();
+                }
+
+                if (parameters.TryGetProperty("date_from", out JsonElement dateFromElement)
+                    && dateFromElement.ValueKind == JsonValueKind.String)
+                {
+                    dateFrom = dateFromElement.GetString();
+                }
+
+                if (parameters.TryGetProperty("date_to", out JsonElement dateToElement)
+                    && dateToElement.ValueKind == JsonValueKind.String)
+                {
+                    dateTo = dateToElement.GetString();
+                }
+            }
+
+            OptimizerReportDb db = new OptimizerReportDb();
+            List<OptimizerRunMeta> runs = db.List(robot, dateFrom, dateTo);
+
+            List<object> items = new List<object>();
+
+            for (int i = 0; i < runs.Count; i++)
+            {
+                OptimizerRunMeta meta = runs[i];
+
+                items.Add(new
+                {
+                    run_id = meta.RunId,
+                    saved_at = meta.SavedAt,
+                    robot = meta.Robot,
+                    data_set = meta.DataSet,
+                    timeframe = meta.Timeframe,
+                    date_from = meta.DateFrom,
+                    date_to = meta.DateTo,
+                    iteration_count = meta.IterationCount,
+                    threads = meta.Threads,
+                    is_partial = meta.IsPartial,
+                    fazes_count = meta.FazesCount,
+                    reports_count = meta.ReportsCount
+                });
+            }
+
+            return new { runs = items, count = items.Count };
+        }
+
+        private object LoadReportDb(JsonElement parameters)
+        {
+            long runId = GetRunId(parameters);
+
+            OptimizerReportDb db = new OptimizerReportDb();
+            List<OptimizerFazeReport> reports = db.Load(runId);
+
+            if (reports == null || reports.Count == 0)
+            {
+                throw new InvalidOperationException($"Optimization run {runId} not found in database");
+            }
+
+            OptimizerMaster master = GetMasterRequired();
+            master._optimizerExecutor.ReportsToFazes = reports;
+
+            return GetReport(parameters);
+        }
+
+        private object DeleteReportDb(JsonElement parameters)
+        {
+            long runId = GetRunId(parameters);
+
+            OptimizerReportDb db = new OptimizerReportDb();
+            db.Delete(runId);
+
+            return new { deleted = true, run_id = runId };
+        }
+
+        private object QueryReportDb(JsonElement parameters)
+        {
+            long runId = GetRunId(parameters);
+
+            string sortBy = null;
+            string order = "desc";
+            string fazeType = null;
+            int limit = 0;
+
+            if (parameters.ValueKind == JsonValueKind.Object)
+            {
+                if (parameters.TryGetProperty("sort_by", out JsonElement sortByElement)
+                    && sortByElement.ValueKind == JsonValueKind.String)
+                {
+                    sortBy = sortByElement.GetString();
+                }
+
+                if (parameters.TryGetProperty("order", out JsonElement orderElement)
+                    && orderElement.ValueKind == JsonValueKind.String)
+                {
+                    order = orderElement.GetString();
+                }
+
+                if (parameters.TryGetProperty("faze_type", out JsonElement fazeTypeElement)
+                    && fazeTypeElement.ValueKind == JsonValueKind.String)
+                {
+                    fazeType = fazeTypeElement.GetString();
+                }
+
+                if (parameters.TryGetProperty("limit", out JsonElement limitElement)
+                    && limitElement.ValueKind == JsonValueKind.Number)
+                {
+                    limit = limitElement.GetInt32();
+                }
+            }
+
+            OptimizerReportDb db = new OptimizerReportDb();
+            List<OptimizerReportRow> rows = db.Query(runId, sortBy, order, fazeType, limit);
+            OptimizerRunMeta meta = db.GetRunMeta(runId);
+
+            List<object> items = new List<object>();
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                OptimizerReportRow row = rows[i];
+
+                items.Add(new
+                {
+                    bot_name = row.BotName,
+                    faze_type = row.FazeType,
+                    faze_index = row.FazeIndex,
+                    positions_count = row.PositionsCount,
+                    profit_position_percent = row.ProfitPositionPercent,
+                    total_profit = row.TotalProfit,
+                    total_profit_percent = row.TotalProfitPercent,
+                    max_draw_down = row.MaxDrawDown,
+                    average_profit = row.AverageProfit,
+                    average_profit_percent_one_contract = row.AverageProfitPercentOneContract,
+                    profit_factor = row.ProfitFactor,
+                    pay_off_ratio = row.PayOffRatio,
+                    recovery = row.Recovery,
+                    sharp_ratio = row.SharpRatio,
+                    average_time_in_position = row.AverageTimeInPosition
+                });
+            }
+
+            return new
+            {
+                run_id = runId,
+                fazes_count = meta == null ? 0 : meta.FazesCount,
+                reports_count = meta == null ? 0 : meta.ReportsCount,
+                returned = rows.Count,
+                reports = items
+            };
+        }
+
+        private object CleanupReportDb(JsonElement parameters)
+        {
+            if (parameters.ValueKind != JsonValueKind.Object
+                || !parameters.TryGetProperty("before_date", out JsonElement beforeElement)
+                || beforeElement.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(beforeElement.GetString()))
+            {
+                throw new ArgumentException("before_date is required and must be a non-empty string");
+            }
+
+            string beforeDate = beforeElement.GetString();
+
+            OptimizerReportDb db = new OptimizerReportDb();
+            int deleted = db.Cleanup(beforeDate);
+
+            return new { cleaned = deleted };
+        }
+
+        private long GetRunId(JsonElement parameters)
+        {
+            if (parameters.ValueKind != JsonValueKind.Object
+                || !parameters.TryGetProperty("run_id", out JsonElement runIdElement)
+                || runIdElement.ValueKind != JsonValueKind.Number)
+            {
+                throw new ArgumentException("run_id is required and must be an integer");
+            }
+
+            return runIdElement.GetInt64();
         }
 
         #endregion

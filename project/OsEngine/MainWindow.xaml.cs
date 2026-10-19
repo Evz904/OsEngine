@@ -338,18 +338,19 @@ namespace OsEngine
 
             ButtonTesterLight.Content = OsLocalization.MainWindow.OsTesterLiteName;
             ButtonRobotLight.Content = OsLocalization.MainWindow.OsBotStationLiteName;
+            ButtonCapitalAllocation.Content = OsLocalization.MainWindow.OsCapitalAllocationName;
 
             ChangeButtonCommits();
 
             if (OsLocalization.CurLocalization == OsLocalization.OsLocalType.Ru)
             {
                 VideoGrid.Visibility = Visibility.Visible;
-                this.Height = 430;
+                this.Height = 460;
                 GifT.Play();
             }
             else
             {
-                this.Height = 315;
+                this.Height = 345;
                 VideoGrid.Visibility = Visibility.Collapsed;
             }
         }
@@ -431,6 +432,14 @@ namespace OsEngine
                     return;
                 }
 
+                if (IsDispatcherSuspendedInterop(e.Exception))
+                { // транзиент WPF/WinForms interop: сообщение пришло в оконный колбэк при приостановленной
+                  // обработке Dispatcher; сообщение теряется, WPF работает дальше. Поглощаем без Crash%-отчёта и Reboot
+                    e.Handled = true;
+                    ServerMaster.SendNewLogMessage(_startProgram + " Dispatcher suspended transient suppressed (BUG-0050): " + e.Exception.Message, Logging.LogMessageType.System);
+                    return;
+                }
+
                 // исключение не фатальное: помечаем обработанным сразу, до отчёта и диалога,
                 // чтобы ошибка внутри отчёта/Reboot/MessageBox не привела к повторному крашу
                 e.Handled = true;
@@ -457,6 +466,27 @@ namespace OsEngine
             {
                 // ошибка в самом обработчике: не зацикливаемся, пусть процесс завершится штатно
             }
+        }
+
+        // Подавляем ровно benign-транзиент DispatcherProcessingDisabledButStillPumping из WindowsBase:
+        // EN «Dispatcher processing has been suspended, but messages are still being processed» (RU-локализация — текст репорта).
+        // Конъюнкция трёх групп ключей; третья («still being processed»/«по-прежнему») намеренно не пускает сюда
+        // соседний ресурс DispatcherProcessingDisabled («Cannot perform this operation while dispatcher processing
+        // is suspended» — запрещённая операция поверх DisableProcessing, возможен реальный дефект кода):
+        // он остаётся на обычном пути отчёта. Локализацию текста учитываем парами ключей, полным текстом не зависим.
+        private static bool IsDispatcherSuspendedInterop(Exception ex)
+        {
+            if (!(ex is InvalidOperationException) || string.IsNullOrEmpty(ex.Message))
+            {
+                return false;
+            }
+
+            return (ex.Message.IndexOf("suspended", StringComparison.OrdinalIgnoreCase) >= 0
+                    || ex.Message.IndexOf("приостановлена", StringComparison.OrdinalIgnoreCase) >= 0)
+                && (ex.Message.IndexOf("Dispatcher", StringComparison.OrdinalIgnoreCase) >= 0
+                    || ex.Message.IndexOf("диспетчер", StringComparison.OrdinalIgnoreCase) >= 0)
+                && (ex.Message.IndexOf("still being processed", StringComparison.OrdinalIgnoreCase) >= 0
+                    || ex.Message.IndexOf("по-прежнему", StringComparison.OrdinalIgnoreCase) >= 0);
         }
 
         #region MCP Host
@@ -597,6 +627,8 @@ namespace OsEngine
                     return "-optimizer";
                 case "converter":
                     return "-converter";
+                case "allocation":
+                    return "-allocation";
                 default:
                     return string.Empty;
             }
@@ -691,6 +723,9 @@ namespace OsEngine
                         break;
                     case "converter":
                         ButtonConverter_Click(null, null);
+                        break;
+                    case "allocation":
+                        ButtonCapitalAllocation_Click(null, null);
                         break;
                     default:
                         ServerMaster.SendNewLogMessage($"Unknown mode for terminal_open_mode: {mode}", Logging.LogMessageType.Error);
@@ -843,6 +878,7 @@ namespace OsEngine
             ButtonOptimizer.IsEnabled = false;
             ButtonTesterLight.IsEnabled = false;
             ButtonRobotLight.IsEnabled = false;
+            ButtonCapitalAllocation.IsEnabled = false;
             ButtonLocal_Ru.IsEnabled = false;
             ButtonLocal_Eng.IsEnabled = false;
             ButtonNewCommits.IsEnabled = false;
@@ -898,6 +934,7 @@ namespace OsEngine
             ButtonOptimizer.IsEnabled = true;
             ButtonTesterLight.IsEnabled = true;
             ButtonRobotLight.IsEnabled = true;
+            ButtonCapitalAllocation.IsEnabled = true;
             ButtonLocal_Ru.IsEnabled = true;
             ButtonLocal_Eng.IsEnabled = true;
             ButtonNewCommits.IsEnabled = true;
@@ -1258,6 +1295,27 @@ namespace OsEngine
             }
         }
 
+        private void ButtonCapitalAllocation_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                _startProgram = StartProgram.IsOsCapitalAllocation;
+                Hide();
+                _mcpMaster?.SendTerminalModeChanged(_startProgram);
+                OsCapitalAllocation.CapitalAllocationUi ui = new OsCapitalAllocation.CapitalAllocationUi();
+                _activeModeWindow = ui;
+                _mcpMaster?.SetCapitalAllocationMaster(ui.Master);
+                ui.ShowDialog();
+                _activeModeWindow = null;
+                _mcpMaster?.SetCapitalAllocationMaster(null);
+                BeginGracefulShutdown(false);
+            }
+            catch (Exception error)
+            {
+                ServerMaster.SendNewLogMessage(error.ToString(), Logging.LogMessageType.Error);
+            }
+        }
+
         private void CommandLineInterfaceProcess()
         {
             try
@@ -1296,6 +1354,10 @@ namespace OsEngine
                 else if (Array.Exists(args, a => a.Equals("-converter")))
                 {
                     ButtonConverter_Click(this, default);
+                }
+                else if (Array.Exists(args, a => a.Equals("-allocation")))
+                {
+                    ButtonCapitalAllocation_Click(this, default);
                 }
                 else if (Array.Exists(args, a => a.Equals("-error")) && PrimeSettingsMaster.RebootTradeUiLight)
                 {

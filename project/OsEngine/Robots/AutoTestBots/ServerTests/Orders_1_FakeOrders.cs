@@ -29,7 +29,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
 
             List<Security> securities = Server.Securities;
 
-            if (securities == null &&
+            if (securities == null ||
                 securities.Count == 0)
             {
                 SetNewError("Error 2. No securities in server found");
@@ -109,6 +109,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             // ордер с объёмом 0
@@ -119,6 +120,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             // ордер с объёмом меньше нуля
@@ -129,6 +131,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             // ордер с объёмом меньше нуля
@@ -139,6 +142,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             // ордер с нулевой ценой
@@ -149,6 +153,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             // ордер с отрицательной ценой
@@ -159,6 +164,7 @@ namespace OsEngine.Robots.AutoTestBots.ServerTests
                 this._errors.Count > 0)
             {
                 TestEnded();
+                return;
             }
 
             TestEnded();

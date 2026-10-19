@@ -1,8 +1,16 @@
-/*
+﻿/*
  * Your rights to use code governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
 
+using OsEngine.Entity;
+using OsEngine.Logging;
+using OsEngine.Market.ServerEncryption;
+using OsEngine.MCP.Json;
+using OsEngine.MCP.Modules;
+using OsEngine.OsCapitalAllocation;
+using OsEngine.OsData;
+using OsEngine.OsOptimizer;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -15,15 +23,6 @@ using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using System.Threading;
 using System.Threading.Tasks;
-using OsEngine.Entity;
-using OsEngine.Logging;
-using OsEngine.Market;
-using OsEngine.Market.ServerEncryption;
-using OsEngine.MCP.Json;
-using OsEngine.MCP.Modules;
-using OsEngine.OsData;
-using OsEngine.OsOptimizer;
-using OsEngine.PrimeSettings;
 
 namespace OsEngine.MCP
 {
@@ -83,6 +82,8 @@ namespace OsEngine.MCP
         private readonly ProxyApi _proxyApi;
         private readonly OptimizerApi _optimizerApi;
         private readonly EncryptionApi _encryptionApi;
+        private readonly UpdateApi _updateApi;
+        private readonly CapitalAllocationApi _capitalAllocationApi;
         private readonly McpProtocolApi _protocolApi;
 
         private readonly Func<McpTerminalStatus> _getTerminalStatus;
@@ -184,6 +185,10 @@ namespace OsEngine.MCP
             _encryptionApi = new EncryptionApi();
             _encryptionApi.NewLogMessageEvent += EncryptionApi_NewLogMessageEvent;
 
+            _updateApi = new UpdateApi(publishEvent, _stopTerminal);
+            _updateApi.NewLogMessageEvent += UpdateApi_NewLogMessageEvent;
+            _capitalAllocationApi = new CapitalAllocationApi();
+
             _protocolApi = new McpProtocolApi(request => ExecuteTool(request));
             _protocolApi.NewLogMessageEvent += ProtocolApi_NewLogMessageEvent;
 
@@ -205,6 +210,8 @@ namespace OsEngine.MCP
             _protocolApi.RegisterToolProvider(_proxyApi);
             _protocolApi.RegisterToolProvider(_optimizerApi);
             _protocolApi.RegisterToolProvider(_encryptionApi);
+            _protocolApi.RegisterToolProvider(_updateApi);
+            _protocolApi.RegisterToolProvider(_capitalAllocationApi);
         }
 
         #endregion
@@ -402,6 +409,11 @@ namespace OsEngine.MCP
         }
 
         private void EncryptionApi_NewLogMessageEvent(string message, LogMessageType type)
+        {
+            Log.ProcessMessage(message, type);
+        }
+
+        private void UpdateApi_NewLogMessageEvent(string message, LogMessageType type)
         {
             Log.ProcessMessage(message, type);
         }
@@ -628,6 +640,11 @@ namespace OsEngine.MCP
         }
 
         private OptimizerMaster _optimizerMaster;
+
+        public void SetCapitalAllocationMaster(CapitalAllocationMaster master)
+        {
+            _capitalAllocationApi?.AttachToMaster(master);
+        }
 
         #endregion
 
@@ -1553,6 +1570,11 @@ namespace OsEngine.MCP
                         response = _encryptionApi.Handle(request);
                         break;
 
+                    case "update_check":
+                    case "update_apply":
+                        response = _updateApi.Handle(request);
+                        break;
+
                     case "optimizer_data_get_config":
                     case "optimizer_data_set_config":
                     case "optimizer_data_get_status":
@@ -1564,6 +1586,8 @@ namespace OsEngine.MCP
                     case "optimizer_bot_tab_set_config":
                     case "optimizer_trade_settings_get":
                     case "optimizer_trade_settings_set":
+                    case "optimizer_cache_get":
+                    case "optimizer_cache_set":
                     case "optimizer_position_support_get":
                     case "optimizer_position_support_set":
                     case "optimizer_phases_get":
@@ -1582,6 +1606,12 @@ namespace OsEngine.MCP
                     case "optimizer_get_report":
                     case "optimizer_save_report":
                     case "optimizer_load_report":
+                    case "optimizer_save_report_db":
+                    case "optimizer_list_report_db":
+                    case "optimizer_load_report_db":
+                    case "optimizer_delete_report_db":
+                    case "optimizer_query_report_db":
+                    case "optimizer_db_cleanup":
                         response = _optimizerApi.Handle(request);
                         break;
 
@@ -1589,6 +1619,10 @@ namespace OsEngine.MCP
                         if (request.Method != null && request.Method.StartsWith("bot_"))
                         {
                             response = _robotsApi.Handle(request);
+                        }
+                        else if (request.Method != null && request.Method.StartsWith("allocation_"))
+                        {
+                            response = _capitalAllocationApi.Handle(request);
                         }
                         else
                         {
